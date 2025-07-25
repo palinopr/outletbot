@@ -174,7 +174,14 @@ const getCalendarSlots = tool(
 
 // Tool: Book appointment
 const bookAppointment = tool(
-  async ({ contactId, slot, leadName, leadEmail }, config) => {
+  async ({ slot, leadName, leadEmail }, config) => {
+    // Get contactId from config
+    const contactId = config?.configurable?.contactId;
+    
+    if (!contactId) {
+      throw new Error('contactId not found in config. Cannot book appointment.');
+    }
+    
     // Initialize services if not provided
     let ghlService = config?.configurable?.ghlService;
     let calendarId = config?.configurable?.calendarId || process.env.GHL_CALENDAR_ID;
@@ -216,7 +223,6 @@ const bookAppointment = tool(
     name: "book_appointment",
     description: "Book an appointment in GHL calendar",
     schema: z.object({
-      contactId: z.string().describe("GHL contact ID"),
       slot: z.object({
         startTime: z.string(),
         endTime: z.string(),
@@ -230,7 +236,14 @@ const bookAppointment = tool(
 
 // Tool: Update GHL contact
 const updateGHLContact = tool(
-  async ({ contactId, tags, notes, leadInfo }, config) => {
+  async ({ tags, notes, leadInfo }, config) => {
+    // Get contactId from config
+    const contactId = config?.configurable?.contactId;
+    
+    if (!contactId) {
+      throw new Error('contactId not found in config. Cannot update contact.');
+    }
+    
     // Initialize GHL service if not provided
     let ghlService = config?.configurable?.ghlService;
     
@@ -273,7 +286,6 @@ const updateGHLContact = tool(
     name: "update_ghl_contact",
     description: "Update GHL contact with tags, notes, and lead information",
     schema: z.object({
-      contactId: z.string(),
       tags: z.array(z.string()).describe("Tags to add to contact"),
       notes: z.string().optional().describe("Note to add to contact timeline"),
       leadInfo: z.object({
@@ -337,7 +349,14 @@ const parseTimeSelection = tool(
 
 // Tool: Send message via GHL WhatsApp (NOT webhook response)
 const sendGHLMessage = tool(
-  async ({ contactId, message }, config) => {
+  async ({ message }, config) => {
+    // Get contactId from config - this is how we pass it from the agent
+    const contactId = config?.configurable?.contactId;
+    
+    if (!contactId) {
+      throw new Error('contactId not found in config. Cannot send message.');
+    }
+    
     // Initialize GHL service if not provided in config
     let ghlService = config?.configurable?.ghlService;
     
@@ -371,7 +390,6 @@ const sendGHLMessage = tool(
     name: "send_ghl_message",
     description: "Send WhatsApp message to customer via GHL",
     schema: z.object({
-      contactId: z.string().describe("GHL contact ID"),
       message: z.string().describe("Message to send to customer")
     })
   }
@@ -384,18 +402,12 @@ You help businesses automate their customer interactions just like you're doing 
 CRITICAL: All messages to customers MUST be sent using the send_ghl_message tool. 
 You are NOT responding to a webhook - you're sending WhatsApp messages through GHL's messaging system.
 
-EXAMPLE OF CORRECT TOOL USAGE:
-If the conversation state shows contactId: "abc123xyz", then call:
-send_ghl_message({"contactId": "abc123xyz", "message": "¡Hola! Soy María..."})
-NEVER use hardcoded IDs like: send_ghl_message({"contactId": "123", "message": "..."})
-ALWAYS use the actual contactId from the current conversation state
+IMPORTANT: The send_ghl_message tool only requires the message parameter.
+The contactId is handled automatically by the system - you don't need to provide it.
 
-IMPORTANT CONTEXT INFORMATION:
-- The contactId is provided in the conversation state/input and MUST be used when calling tools
-- ALWAYS look for contactId in the current conversation state before calling any tool
-- The contactId will be a string of letters and numbers
-- NEVER use "123" or any other test ID - use the real contactId from the state
-- When calling send_ghl_message, you MUST use: {"contactId": "<actual-contact-id-from-state>", "message": "your message"}
+Simply call:
+send_ghl_message({"message": "your message here"})
+
 
 LANGUAGE: Always respond in Spanish. You are a native Spanish speaker from Texas.
 
@@ -457,7 +469,7 @@ UPDATE GHL at each stage:
 - After booking: Add "appointment-scheduled" tag
 - Add notes summarizing the conversation
 
-Remember: Every send_ghl_message call must use the contactId from the conversation state!`;
+`;
 
 
 // Create the agent - direct export from createReactAgent
@@ -478,24 +490,7 @@ export const graph = createReactAgent({
     // Create system message with the prompt
     const systemMessage = new SystemMessage(SALES_AGENT_PROMPT);
     
-    // Check if we have contactId in state
-    const contactId = state.contactId || state.configurable?.contactId;
-    
-    if (contactId) {
-      // Add contactId context
-      const contextMessage = new SystemMessage(
-        `CRITICAL CONTEXT FOR THIS CONVERSATION:
-The contactId for this conversation is: ${contactId}
-
-IMPORTANT: When calling send_ghl_message, you MUST use exactly:
-send_ghl_message({"contactId": "${contactId}", "message": "your message"})
-
-DO NOT use any other contactId. The correct contactId is: ${contactId}`
-      );
-      return [systemMessage, contextMessage, ...state.messages];
-    }
-    
-    // Return messages with just the system prompt
+    // Return messages with the system prompt
     return [systemMessage, ...state.messages];
   }
 });
