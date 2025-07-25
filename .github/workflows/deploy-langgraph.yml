@@ -16,7 +16,7 @@ jobs:
     - name: Set up Node.js
       uses: actions/setup-node@v4
       with:
-        node-version: '18'
+        node-version: '20'
     
     - name: Install dependencies
       run: npm ci
@@ -35,6 +35,10 @@ jobs:
       env:
         LANGCHAIN_API_KEY: ${{ secrets.LANGSMITH_API_KEY }}
         LANGCHAIN_PROJECT_ID: ${{ secrets.LANGCHAIN_PROJECT_ID }}
+        OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        GHL_API_KEY: ${{ secrets.GHL_API_KEY }}
+        GHL_LOCATION_ID: ${{ secrets.GHL_LOCATION_ID }}
+        GHL_CALENDAR_ID: ${{ secrets.GHL_CALENDAR_ID }}
       run: |
         echo "Deploying to LangGraph Cloud..."
         langgraph deploy --config ./langgraph.json
