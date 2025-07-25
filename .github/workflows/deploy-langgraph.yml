@@ -1,0 +1,40 @@
+name: Deploy LangGraph
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+    
+    - name: Install dependencies
+      run: npm ci
+    
+    - name: Install LangGraph CLI
+      run: npm install -g @langchain/langgraph-cli
+    
+    - name: Build LangGraph image
+      env:
+        LANGCHAIN_API_KEY: ${{ secrets.LANGSMITH_API_KEY }}
+      run: |
+        echo "Building LangGraph API image..."
+        langgraph build --config ./langgraph.json
+    
+    - name: Deploy to LangGraph Cloud
+      env:
+        LANGCHAIN_API_KEY: ${{ secrets.LANGSMITH_API_KEY }}
+        LANGCHAIN_PROJECT_ID: ${{ secrets.LANGCHAIN_PROJECT_ID }}
+      run: |
+        echo "Deploying to LangGraph Cloud..."
+        langgraph deploy --config ./langgraph.json

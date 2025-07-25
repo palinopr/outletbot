@@ -1,0 +1,44 @@
+{
+  "name": "outlet-media-bot",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "langgraph": {
+    "config": "./langgraph.config.js",
+    "version": "1.0.0"
+  },
+  "scripts": {
+    "start": "node index.js",
+    "dev": "nodemon index.js",
+    "start:prod": "NODE_ENV=production node index.production.js",
+    "pm2:start": "pm2 start ecosystem.config.js",
+    "pm2:stop": "pm2 stop outlet-media-bot",
+    "pm2:restart": "pm2 restart outlet-media-bot",
+    "pm2:logs": "pm2 logs outlet-media-bot",
+    "pm2:monitor": "pm2 monit",
+    "docker:build": "docker build -t outlet-media-bot .",
+    "docker:run": "docker run -d --env-file .env -p 3000:3000 --name outlet-media-bot outlet-media-bot",
+    "docker:compose": "docker-compose up -d",
+    "docker:down": "docker-compose down",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "@langchain/core": "^0.3.66",
+    "@langchain/langgraph": "^0.3.11",
+    "@langchain/openai": "^0.6.3",
+    "axios": "^1.11.0",
+    "dotenv": "^17.2.1",
+    "express": "^5.1.0",
+    "langsmith": "^0.3.48",
+    "nodemon": "^3.1.10",
+    "redis": "^4.6.13",
+    "helmet": "^7.1.0",
+    "cors": "^2.8.5",
+    "express-rate-limit": "^7.2.0",
+    "winston": "^3.11.0"
+  }
+}

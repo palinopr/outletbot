@@ -1,0 +1,20 @@
+{
+  "runtime": "nodejs",
+  "node_version": "18",
+  "dependencies": ["./package.json"],
+  "graphs": {
+    "sales_agent": "./agents/salesAgent.js"
+  },
+  "api": {
+    "path": "./api/langgraph-api.js"
+  },
+  "env": {
+    "OPENAI_API_KEY": "",
+    "GHL_API_KEY": "",
+    "GHL_LOCATION_ID": "",
+    "GHL_CALENDAR_ID": "",
+    "LANGSMITH_API_KEY": "",
+    "LANGSMITH_PROJECT": "outlet-media-bot",
+    "LANGCHAIN_TRACING_V2": "true"
+  }
+}

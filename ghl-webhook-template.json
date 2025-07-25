@@ -1,0 +1,48 @@
+{
+  "webhookUrl": "https://your-domain.com/webhook/meta-lead",
+  "webhookName": "Meta Ads Sales Bot",
+  "webhookTriggers": [
+    "InboundMessage"
+  ],
+  "webhookHeaders": {
+    "Content-Type": "application/json"
+  },
+  "webhookPayloadTemplate": {
+    "phone": "{{Contact.Phone}}",
+    "message": "{{Message.Body}}",
+    "contactId": "{{Contact.Id}}",
+    "conversationId": "{{Conversation.Id}}"
+  },
+  "customFieldMapping": {
+    "phone": {
+      "ghlField": "{{Contact.Phone}}",
+      "description": "Contact's phone number"
+    },
+    "message": {
+      "ghlField": "{{Message.Body}}",
+      "description": "The message content from the contact"
+    },
+    "contactId": {
+      "ghlField": "{{Contact.Id}}",
+      "description": "GHL Contact ID"
+    },
+    "conversationId": {
+      "ghlField": "{{Conversation.Id}}",
+      "description": "GHL Conversation ID"
+    }
+  },
+  "additionalSettings": {
+    "triggerOn": "InboundMessage",
+    "messageTypes": ["SMS", "WhatsApp"],
+    "locationId": "{{Location.Id}}",
+    "webhookMethod": "POST",
+    "retryOnFailure": true,
+    "maxRetries": 3
+  },
+  "examplePayload": {
+    "phone": "+15551234567",
+    "message": "Hi, I saw your ad on Facebook",
+    "contactId": "9NkT25Vor1v4aQatFsv2",
+    "conversationId": "fcanlLgpbQgQhderivVs"
+  }
+}

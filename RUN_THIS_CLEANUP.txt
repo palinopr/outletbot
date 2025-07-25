@@ -1,0 +1,5 @@
+COPY AND PASTE THIS COMMAND TO CLEAN UP YOUR PROJECT:
+
+cd /Users/jaimeortiz/outlet-media-bot && rm -rf temp-repo && rm -f GITHUB_REPLACE_INSTRUCTIONS.md replace-github-repo.sh cleanup.sh start-local.sh DEPLOYMENT.md LOCAL_DEPLOYMENT.md ghl-webhook-setup.md ghl-webhook-template.json PRODUCTION_SETUP.md langgraph.json docker-compose.yml PROJECT_CLEANUP.md FILES_TO_DELETE.txt CLEANUP_COMMANDS.sh final_cleanup.sh RUN_THIS_CLEANUP.txt && echo "✅ Cleanup complete!"
+
+This single command will remove all 17 unnecessary files and make your project clean!
