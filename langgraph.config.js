@@ -3,14 +3,14 @@ export default {
   // Graph definition
   graphs: {
     sales_agent: {
-      path: "./agents/modernSalesAgent.js",
+      path: "./agents/salesAgent.js",
       entrypoint: "salesAgent"
     }
   },
 
   // API Configuration
   api: {
-    path: "./api/modernLanggraphApi.js",
+    path: "./api/langgraphApi.js",
     routes: {
       "/webhook/meta-lead": {
         method: "POST",

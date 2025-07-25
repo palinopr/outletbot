@@ -57,7 +57,17 @@ const extractLeadInfo = tool(
 // Tool: Get calendar slots (ONLY after full qualification)
 const getCalendarSlots = tool(
   async ({ leadInfo, startDate, endDate }, config) => {
-    const { ghlService, calendarId } = config.configurable;
+    // Initialize services if not provided
+    let ghlService = config?.configurable?.ghlService;
+    let calendarId = config?.configurable?.calendarId || process.env.GHL_CALENDAR_ID;
+    
+    if (!ghlService) {
+      const { GHLService } = await import('../services/ghlService.js');
+      ghlService = new GHLService(
+        process.env.GHL_API_KEY,
+        process.env.GHL_LOCATION_ID
+      );
+    }
     
     // STRICT validation - must have ALL info before showing slots
     if (!leadInfo.name || !leadInfo.problem || !leadInfo.goal || !leadInfo.budget || !leadInfo.email) {
@@ -165,7 +175,17 @@ const getCalendarSlots = tool(
 // Tool: Book appointment
 const bookAppointment = tool(
   async ({ contactId, slot, leadName, leadEmail }, config) => {
-    const { ghlService, calendarId } = config.configurable;
+    // Initialize services if not provided
+    let ghlService = config?.configurable?.ghlService;
+    let calendarId = config?.configurable?.calendarId || process.env.GHL_CALENDAR_ID;
+    
+    if (!ghlService) {
+      const { GHLService } = await import('../services/ghlService.js');
+      ghlService = new GHLService(
+        process.env.GHL_API_KEY,
+        process.env.GHL_LOCATION_ID
+      );
+    }
     
     try {
       const appointment = await ghlService.bookAppointment(
@@ -182,7 +202,7 @@ const bookAppointment = tool(
       return {
         success: true,
         appointmentId: appointment.id,
-        confirmationMessage: `¡Perfecto! He agendado tu cita para el ${slot.display}. Recibirás una invitación por correo a ${leadEmail}. ¡Esperamos hablar contigo pronto!`
+        confirmationMessage: `¡Perfecto! Tu cita está confirmada para ${slot.display}. Te enviaré un recordatorio antes de nuestra llamada.`
       };
     } catch (error) {
       console.error("Error booking appointment:", error);
@@ -194,7 +214,7 @@ const bookAppointment = tool(
   },
   {
     name: "book_appointment",
-    description: "Book appointment in GHL calendar",
+    description: "Book an appointment in GHL calendar",
     schema: z.object({
       contactId: z.string().describe("GHL contact ID"),
       slot: z.object({
@@ -202,8 +222,8 @@ const bookAppointment = tool(
         endTime: z.string(),
         display: z.string()
       }).describe("Selected time slot"),
-      leadName: z.string().describe("Customer's name"),
-      leadEmail: z.string().email().describe("Customer's email")
+      leadName: z.string().describe("Lead's name"),
+      leadEmail: z.string().describe("Lead's email")
     })
   }
 );
@@ -233,16 +253,17 @@ const updateGHLContact = tool(
         await ghlService.addNote(contactId, notes);
       }
       
-      // Update contact info
-      const updates = {};
-      if (leadInfo.name) updates.firstName = leadInfo.name;
-      if (leadInfo.email) updates.email = leadInfo.email;
-      
-      if (Object.keys(updates).length > 0) {
-        await ghlService.updateContact(contactId, updates);
+      // Update custom fields if we have lead info
+      if (leadInfo) {
+        const updateData = {};
+        if (leadInfo.name) updateData.name = leadInfo.name;
+        if (leadInfo.email) updateData.email = leadInfo.email;
+        if (leadInfo.businessType) updateData.companyName = leadInfo.businessType;
+        
+        await ghlService.updateContact(contactId, updateData);
       }
       
-      return { success: true, updated: true };
+      return { success: true, updated: { tags, notes: !!notes, leadInfo: !!leadInfo } };
     } catch (error) {
       console.error("Error updating GHL contact:", error);
       return { success: false, error: error.message };
@@ -250,58 +271,66 @@ const updateGHLContact = tool(
   },
   {
     name: "update_ghl_contact",
-    description: "Update GHL contact with tags and notes",
+    description: "Update GHL contact with tags, notes, and lead information",
     schema: z.object({
       contactId: z.string(),
-      tags: z.array(z.string()).describe("Tags to add"),
-      notes: z.string().describe("Note content"),
+      tags: z.array(z.string()).describe("Tags to add to contact"),
+      notes: z.string().optional().describe("Note to add to contact timeline"),
       leadInfo: z.object({
         name: z.string().optional(),
         email: z.string().optional(),
+        businessType: z.string().optional(),
         budget: z.number().optional()
-      }).describe("Lead information to update")
+      }).optional().describe("Lead information to update")
     })
   }
 );
 
 // Tool: Parse time selection
 const parseTimeSelection = tool(
-  async ({ userInput, availableSlots }) => {
-    const input = userInput.toLowerCase();
+  async ({ userMessage, availableSlots }) => {
+    const llm = new ChatOpenAI({ model: "gpt-4", temperature: 0 });
     
-    // Check for slot number (1, 2, 3, etc.)
-    for (let i = 0; i < availableSlots.length; i++) {
-      if (input.includes((i + 1).toString()) || 
-          input.includes(['first', 'second', 'third', 'fourth', 'fifth'][i])) {
-        return availableSlots[i];
-      }
+    const prompt = `User selected a time from these options:
+    ${availableSlots.map(s => `${s.index}. ${s.display}`).join('\n')}
+    
+    User said: "${userMessage}"
+    
+    Return the index number (1-5) of their selection, or 0 if unclear.
+    Return ONLY a number.`;
+    
+    const response = await llm.invoke([
+      new SystemMessage("Extract the time slot selection. Return only a number 1-5, or 0 if unclear."),
+      { role: "user", content: prompt }
+    ]);
+    
+    const selection = parseInt(response.content.trim());
+    
+    if (selection > 0 && selection <= availableSlots.length) {
+      return {
+        success: true,
+        selectedIndex: selection,
+        selectedSlot: availableSlots[selection - 1]
+      };
     }
     
-    // Check for time mentions
-    for (const slot of availableSlots) {
-      const slotLower = slot.display.toLowerCase();
-      if (input.includes('10') && slotLower.includes('10:')) return slot;
-      if (input.includes('2') && slotLower.includes('2:')) return slot;
-      if (input.includes('11') && slotLower.includes('11:')) return slot;
-      
-      // Check day mentions
-      const dayMatch = slotLower.match(/(monday|tuesday|wednesday|thursday|friday|saturday|sunday)/);
-      if (dayMatch && input.includes(dayMatch[1])) return slot;
-    }
-    
-    return null; // No clear selection
+    return {
+      success: false,
+      error: "Could not understand selection",
+      selectedIndex: 0
+    };
   },
   {
     name: "parse_time_selection",
-    description: "Parse customer's time selection from their message",
+    description: "Parse user's time slot selection",
     schema: z.object({
-      userInput: z.string().describe("Customer's message about time selection"),
+      userMessage: z.string().describe("User's message selecting a time"),
       availableSlots: z.array(z.object({
         index: z.number(),
         display: z.string(),
         startTime: z.string(),
         endTime: z.string()
-      })).describe("Available time slots")
+      })).describe("Available slots shown to user")
     })
   }
 );
@@ -412,56 +441,25 @@ STRICT QUALIFICATION FLOW:
 IMPORTANT: You MUST collect ALL four pieces of information (nombre, problema, meta, presupuesto) 
 BEFORE proceeding to scheduling. No exceptions.
 
-5. SOLO después de tener TODA la información:
-   - Si presupuesto >= $300/mes:
-     * Mencionar algo específico: "Con $[amount] y un [business_type] como el tuyo, podríamos generar aproximadamente [X] nuevos clientes al mes"
-     * Pedir email para agendar cita
-     * SOLO después de obtener email, usar get_calendar_slots tool
-     * Mostrar horarios disponibles en español
-     * Usar parse_time_selection tool cuando respondan
-     * Usar book_appointment tool para confirmar
-   - Si presupuesto < $300/mes:
-     * Ser empático: "Entiendo perfectamente. Muchos [business_type] empiezan con presupuestos ajustados..."
-     * Explicar valor: "Nuestros clientes típicamente ven retorno de 3-5x en los primeros 90 días"
-     * Ofrecer contactarlos cuando estén listos
-     * Usar update_ghl_contact para marcar como "nurture-lead"
+Budget Handling:
+- If budget >= $300: Continue to email collection and scheduling
+- If budget < $300: Politely explain our minimum, offer to stay in touch, tag as "nurture-lead"
 
-IMPRESSIVE FACTS TO DROP (choose relevant ones):
-- "El 67% de los consumidores prefieren WhatsApp para comunicarse con negocios"
-- "Los negocios que responden en menos de 5 minutos tienen 100x más probabilidad de convertir"
-- "La AI puede manejar el 80% de las preguntas de clientes sin intervención humana"
-- "Justo como esta conversación - imagina tener 50 de estas al mismo tiempo, 24/7"
+Calendar Scheduling:
+- ONLY call get_calendar_slots AFTER collecting ALL info including email
+- Show numbered slots in Spanish with Texas timezone
+- Use parse_time_selection to understand their choice
+- Call book_appointment to confirm
 
-TOOL USAGE:
-- send_ghl_message: Use for EVERY message you want to send to the customer
-- extract_lead_info: After EVERY customer message to capture information
-- get_calendar_slots: ONLY when you have ALL info (name, problem, goal, budget >= $300, email)
-- parse_time_selection: When customer responds to time options
-- book_appointment: When you have a selected time
-- update_ghl_contact: At conversation milestones with appropriate tags
+UPDATE GHL at each stage:
+- After qualification: Add tags like "qualified-lead", "budget-300-plus", "under-budget"
+- After booking: Add "appointment-scheduled" tag
+- Add notes summarizing the conversation
 
-Remember: Sound like a real person texting in Spanish, not a formal business email.
+Remember: Every send_ghl_message call must use the contactId from the conversation state!`;
 
-SMART CONVERSATION EXAMPLES:
-
-Initial: "¡Hola! 👋 Soy María, tu consultora AI de Outlet Media. Así es, ¡soy inteligencia artificial ayudándote a implementar inteligencia artificial! ¿Cómo te llamas?"
-
-After name: "Mucho gusto, [nombre]. Cuéntame, ¿qué tipo de negocio manejas? Me encanta aprender sobre diferentes industrias 🚀"
-
-After business type (restaurant): "¡Un restaurante! 🍽️ Fascinante. Justo ayer ayudé a 3 restaurantes en Texas a aumentar sus reservaciones en un 45%. ¿Cuál es tu mayor reto ahora mismo? ¿Conseguir más clientes, mejorar las reseñas, o tal vez competir con delivery apps?"
-
-After problem: "Ah, [specific problem]. Es exactamente lo que escucho de muchos [business type] en [month]. De hecho, mientras hablamos, mi algoritmo ya está identificando las 3 estrategias más efectivas para tu caso específico... ¿Cuál es tu meta ideal? ¿Qué te haría decir 'wow, esto sí funcionó'?"
-
-Budget question (smart): "Perfecto, [nombre]. Para implementar AI y automatización como la que estás experimentando ahora mismo, ¿cuánto inviertes actualmente en marketing? O mejor dicho, ¿cuánto estarías cómodo invirtiendo mensualmente para [their specific goal]? 💡"
-
-When qualified: "¡Excelente! Con $[amount] podemos hacer maravillas. De hecho, déjame mostrarte algo cool - mientras procesaba tu información, ya identifiqué 5 oportunidades específicas para [business type] en tu área. ¿Cuál es tu email para agendar una videollamada y mostrártelas?"
-
-WHEN SHOWING CALENDAR SLOTS:
-"Mira qué eficiente - ya tengo los horarios disponibles 📅 (así funcionará tu negocio con nuestra AI):"
-Format: "Martes 29 de julio a las 3:00 PM (Hora de Texas)"`;
-
-// Create the modern sales agent
-export const salesAgent = createReactAgent({
+// Create the base agent
+const baseAgent = createReactAgent({
   llm: new ChatOpenAI({ 
     model: "gpt-4",
     temperature: 0.7 
@@ -476,6 +474,37 @@ export const salesAgent = createReactAgent({
   ],
   prompt: SALES_AGENT_PROMPT
 });
+
+/**
+ * Wrapper for the sales agent that injects contactId into the conversation
+ * This ensures the agent knows which contactId to use when calling tools
+ */
+export async function salesAgent(input, config) {
+  const { messages, contactId, ...rest } = input;
+  
+  if (!contactId) {
+    throw new Error('contactId is required for the sales agent');
+  }
+  
+  // Create a system message that provides the contactId context
+  const contextMessage = new SystemMessage(
+    `IMPORTANT: The current contactId for this conversation is: ${contactId}
+    You MUST use this exact contactId when calling send_ghl_message and other tools.
+    Example: send_ghl_message({"contactId": "${contactId}", "message": "your message"})`
+  );
+  
+  // Prepend the context message to the conversation
+  const messagesWithContext = [contextMessage, ...messages];
+  
+  // Call the original agent with the modified messages
+  return baseAgent.invoke({
+    ...input,
+    messages: messagesWithContext
+  }, config);
+}
+
+// For LangGraph deployment
+export default salesAgent;
 
 // Export tools for testing
 export const tools = {

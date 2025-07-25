@@ -1,4 +1,4 @@
-import { salesAgent } from '../agents/modernSalesAgent.js';
+import { salesAgent } from '../agents/salesAgent.js';
 import { GHLService, formatPhoneNumber } from '../services/ghlService.js';
 import ConversationManager from '../services/conversationManager.js';
 import { HumanMessage, AIMessage } from '@langchain/core/messages';

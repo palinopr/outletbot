@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import 'dotenv/config';
-import { tools } from './agents/modernSalesAgent.js';
+import { tools } from './agents/salesAgent.js';
 import { GHLService } from './services/ghlService.js';
 import { ChatOpenAI } from '@langchain/openai';
 import { SystemMessage } from '@langchain/core/messages';

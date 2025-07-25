@@ -3,10 +3,10 @@
   "node_version": "20",
   "dependencies": ["./package.json"],
   "graphs": {
-    "sales_agent": "./agents/salesAgentWithContext.js:default"
+    "sales_agent": "./agents/salesAgent.js:default"
   },
   "api": {
-    "path": "./api/modernLanggraphApi.js"
+    "path": "./api/langgraphApi.js"
   },
   "env": {
     "OPENAI_API_KEY": "",
