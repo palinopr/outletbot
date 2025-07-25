@@ -2,7 +2,7 @@ import { salesAgent } from './salesAgent.js';
 import { GHLService, formatPhoneNumber } from '../services/ghlService.js';
 import ConversationManager from '../services/conversationManager.js';
 import { HumanMessage } from '@langchain/core/messages';
-import { StateGraph, MessagesAnnotation } from '@langchain/langgraph';
+import { StateGraph, MessagesAnnotation, Annotation, END } from '@langchain/langgraph';
 
 // Initialize services with lazy loading
 let ghlService;
@@ -47,8 +47,8 @@ async function initialize(retries = 3) {
   }
 }
 
-// Enhanced webhook handler with error recovery
-async function webhookHandlerNode(state) {
+// Enhanced webhook handler following LangGraph best practices
+async function webhookHandlerNode(state, config) {
   const startTime = Date.now();
   
   try {
@@ -63,33 +63,32 @@ async function webhookHandlerNode(state) {
   try {
     webhookData = JSON.parse(lastMessage.content);
   } catch (e) {
-    // If not JSON, treat as regular message with contactId from config
+    // If not JSON, treat as regular message with contactId from state
     webhookData = {
       message: lastMessage.content,
-      contactId: state.contactId || state.configurable?.contactId,
-      phone: state.phone || state.configurable?.phone,
-      conversationId: state.conversationId || state.configurable?.conversationId
+      contactId: state.contactId || config?.configurable?.contactId,
+      phone: state.phone || config?.configurable?.phone
     };
   }
   
-  const { phone, message, contactId, conversationId } = webhookData;
+  const { phone, message, contactId } = webhookData;
   
-  // Validate required fields
+  // Validate required fields - only need phone, message, and contactId
   if (!phone || !message || !contactId) {
     throw new Error('Missing required fields: phone, message, or contactId');
   }
   
   console.log('Webhook received:', { 
     contactId, 
-    conversationId, 
+    phone,
     message: message.substring(0, 50) + '...',
     timestamp: new Date().toISOString()
   });
   
-  // Get conversation state with timeout (pass phone for better search)
+  // Always fetch conversation by contactId and phone (no conversationId from webhook)
   const conversationStatePromise = conversationManager.getConversationState(
     contactId, 
-    conversationId,
+    null, // Let the system find the conversation
     phone
   );
   
@@ -108,12 +107,14 @@ async function webhookHandlerNode(state) {
     // Use minimal state if fetch fails
     conversationState = {
       messages: [],
-      conversationId,
+      conversationId: null,
       leadName: null,
       leadProblem: null,
       leadGoal: null,
       leadBudget: null,
-      leadEmail: null
+      leadEmail: null,
+      ghlContactId: contactId,
+      leadPhone: phone
     };
   }
   
@@ -135,7 +136,7 @@ async function webhookHandlerNode(state) {
     phone: formatPhoneNumber(phone)
   };
   
-  // Invoke the sales agent with timeout protection
+  // Invoke the sales agent with proper configuration
   const result = await salesAgent({
     messages: agentMessages,
     // Pass current lead info as context
@@ -143,7 +144,7 @@ async function webhookHandlerNode(state) {
     contactId,
     conversationId: conversationState.conversationId
   }, {
-    // Configuration for tools
+    // Configuration for tools - matching config parameter pattern
     configurable: {
       ghlService,
       calendarId: process.env.GHL_CALENDAR_ID,
@@ -156,14 +157,17 @@ async function webhookHandlerNode(state) {
   
   // Clear conversation cache (non-blocking)
   setImmediate(() => {
-    conversationManager.clearCache(contactId, conversationId);
+    conversationManager.clearCache(contactId, conversationState.conversationId);
   });
   
   console.log(`Webhook processed in ${Date.now() - startTime}ms`);
   
-  // Return updated messages
+  // Return updated state with messages following MessagesAnnotation pattern
   return {
-    messages: result.messages
+    messages: result.messages,
+    contactId,
+    phone,
+    leadInfo: currentLeadInfo
   };
   
   } catch (error) {
@@ -186,9 +190,23 @@ async function webhookHandlerNode(state) {
   }
 }
 
-// Create the webhook handler graph
-export const graph = new StateGraph(MessagesAnnotation)
+// Define extended state annotation for webhook handler
+const WebhookAnnotation = Annotation.Root({
+  messages: Annotation({
+    reducer: (x, y) => x.concat(y),
+    default: () => []
+  }),
+  contactId: Annotation(),
+  phone: Annotation(),
+  leadInfo: Annotation({
+    reducer: (x, y) => ({ ...x, ...y }),
+    default: () => ({})
+  })
+});
+
+// Create the webhook handler graph with proper state management
+export const graph = new StateGraph(WebhookAnnotation)
   .addNode('webhook_handler', webhookHandlerNode)
   .addEdge('__start__', 'webhook_handler')
-  .addEdge('webhook_handler', '__end__')
+  .addEdge('webhook_handler', END)
   .compile();

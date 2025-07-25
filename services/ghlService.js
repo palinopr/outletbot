@@ -85,6 +85,36 @@ export class GHLService {
   // Update contact
   async updateContact(contactId, data) {
     try {
+      // If custom field data is provided, format it properly
+      if (data.customFields) {
+        const customFieldData = [];
+        
+        // Map our field names to GHL custom field IDs
+        const fieldMapping = {
+          goal: 'r7jFiJBYHiEllsGn7jZC',
+          budget: '4Qe8P25JRLW0IcZc5iOs',
+          businessType: 'HtoheVc48qvAfvRUKhfG',
+          urgencyLevel: 'dXasgCZFgqd62psjw7nd',
+          preferredDay: 'D1aD9KUDNm5Lp4Kz8yAD',
+          preferredTime: 'M70lUtadchW4f2pJGDJ5',
+          verifiedName: 'TjB0I5iNfVwx3zyxZ9sW',
+          problem: 'r7jFiJBYHiEllsGn7jZC' // Map problem to goal field
+        };
+        
+        // Convert to GHL format
+        Object.entries(data.customFields).forEach(([key, value]) => {
+          if (fieldMapping[key] && value !== null && value !== undefined) {
+            customFieldData.push({
+              id: fieldMapping[key],
+              value: String(value)
+            });
+          }
+        });
+        
+        // Replace customFields with properly formatted array
+        data.customFields = customFieldData;
+      }
+      
       const response = await axios.put(
         `${this.baseURL}/contacts/${contactId}`,
         data,

@@ -281,10 +281,24 @@ const updateGHLContact = tool(
       
       // Update custom fields if we have lead info
       if (leadInfo) {
-        const updateData = {};
-        if (leadInfo.name) updateData.name = leadInfo.name;
-        if (leadInfo.email) updateData.email = leadInfo.email;
-        if (leadInfo.businessType) updateData.companyName = leadInfo.businessType;
+        const updateData = {
+          // Standard fields
+          firstName: leadInfo.name,
+          email: leadInfo.email,
+          companyName: leadInfo.businessType,
+          // Custom fields mapped to GHL IDs
+          customFields: {
+            goal: leadInfo.problem || leadInfo.goal,
+            budget: String(leadInfo.budget || ''),
+            businessType: leadInfo.businessType,
+            verifiedName: leadInfo.name
+          }
+        };
+        
+        // Remove undefined values
+        Object.keys(updateData).forEach(key => {
+          if (updateData[key] === undefined) delete updateData[key];
+        });
         
         await ghlService.updateContact(contactId, updateData);
       }
@@ -305,7 +319,9 @@ const updateGHLContact = tool(
         name: z.string().optional(),
         email: z.string().optional(),
         businessType: z.string().optional(),
-        budget: z.number().optional()
+        budget: z.number().optional(),
+        problem: z.string().optional(),
+        goal: z.string().optional()
       }).optional().describe("Lead information to update")
     })
   }
@@ -422,11 +438,19 @@ CRITICAL CONTEXT AWARENESS:
 🚨 CRITICAL TOOL USAGE RULES 🚨
 You NEVER respond directly in the message content. Your ONLY way to communicate with the customer is through tools.
 
-TO SEND A MESSAGE TO THE CUSTOMER:
-1. You MUST call the send_ghl_message tool
-2. Pass your message as: {"message": "your message here"}
-3. Do NOT include any response in your message content - ONLY use the tool
-4. The system handles contactId automatically - don't include it
+FOR EVERY CUSTOMER INTERACTION:
+1. extract_lead_info - Analyze what they said
+2. send_ghl_message - Send your response
+3. update_ghl_contact - Update GHL with:
+   - Tags for any new info
+   - Custom fields updates
+   - Note with interaction summary
+
+TO SEND A MESSAGE:
+- You MUST call the send_ghl_message tool
+- Pass your message as: {"message": "your message here"}
+- Do NOT include any response in your message content - ONLY use the tool
+- The system handles contactId automatically - don't include it
 
 EXAMPLE OF CORRECT BEHAVIOR:
 User: "hola"
@@ -476,7 +500,15 @@ CONVERSATION RULES:
 3. Use emojis intelligently (not too many): 📊 📈 🚀 💡 ✨
 4. If they test you or ask if you're real: "¡Soy 100% AI y orgullosa de serlo! 🤖 Justo como las soluciones que implementamos para tu negocio"
 
-IMPORTANT: ALWAYS use extract_lead_info tool on EVERY customer message to check for:
+IMPORTANT TOOL USAGE ON EVERY MESSAGE:
+1. FIRST: Use extract_lead_info tool to analyze customer message
+2. SECOND: Use send_ghl_message to respond to customer
+3. THIRD: Use update_ghl_contact to:
+   - Add tags if new information discovered
+   - Update custom fields with any new data
+   - Add a note summarizing this interaction
+
+ALWAYS check for:
 - Budget mentions (numbers with "mes", "mensual", "al mes", etc.)
 - Email addresses
 - Business details
@@ -502,9 +534,17 @@ Calendar Scheduling:
 - Call book_appointment to confirm
 
 UPDATE GHL at each stage:
+- After EVERY customer message: Add a note with timestamp and what was discussed
 - After qualification: Add tags like "qualified-lead", "budget-300-plus", "under-budget"
 - After booking: Add "appointment-scheduled" tag
-- Add notes summarizing the conversation
+- Always use update_ghl_contact tool to add notes about each interaction
+
+NOTE FORMAT for each interaction:
+[Date/Time] - Conversation Update
+- Customer said: [summary of their message]
+- Information extracted: [any new data collected]
+- Bot response: [what we discussed]
+- Next step: [what we're asking/doing next]
 
 `;
 

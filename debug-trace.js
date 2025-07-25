@@ -108,5 +108,5 @@ async function debugTrace(traceId) {
 }
 
 // Run the debug script
-const traceId = '1f06999d-a434-6a4e-90ad-15afa06c9693';
+const traceId = process.argv[2] || '1f069aa3-4d0e-6419-8939-3dac1bf2836b';
 debugTrace(traceId);
