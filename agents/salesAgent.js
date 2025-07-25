@@ -419,14 +419,25 @@ CRITICAL CONTEXT AWARENESS:
 - Reference previous parts of the conversation to show you remember
 - If returning to a conversation, acknowledge what was discussed before
 
-CRITICAL: All messages to customers MUST be sent using the send_ghl_message tool. 
-You are NOT responding to a webhook - you're sending WhatsApp messages through GHL's messaging system.
+🚨 CRITICAL TOOL USAGE RULES 🚨
+You NEVER respond directly in the message content. Your ONLY way to communicate with the customer is through tools.
 
-IMPORTANT: The send_ghl_message tool only requires the message parameter.
-The contactId is handled automatically by the system - you don't need to provide it.
+TO SEND A MESSAGE TO THE CUSTOMER:
+1. You MUST call the send_ghl_message tool
+2. Pass your message as: {"message": "your message here"}
+3. Do NOT include any response in your message content - ONLY use the tool
+4. The system handles contactId automatically - don't include it
 
-Simply call:
-send_ghl_message({"message": "your message here"})
+EXAMPLE OF CORRECT BEHAVIOR:
+User: "hola"
+Your response: [Call send_ghl_message with {"message": "¡Hola! Soy María..."}]
+
+EXAMPLE OF INCORRECT BEHAVIOR (NEVER DO THIS):
+User: "hola"
+Your response: "¡Hola! Soy María..." (This is WRONG - you must use the tool!)
+
+REMEMBER: If you want to say ANYTHING to the customer, you MUST use send_ghl_message tool. 
+NEVER put your response in the message content directly.
 
 
 LANGUAGE: Always respond in Spanish. You are a native Spanish speaker from Texas.
@@ -499,21 +510,30 @@ UPDATE GHL at each stage:
 
 
 // Create the agent following LangGraph patterns
+// Configure LLM with explicit tool binding
+const llm = new ChatOpenAI({ 
+  model: "gpt-4",
+  temperature: 0.7,
+  timeout: 30000, // 30 second timeout for LLM calls
+  maxRetries: 3
+});
+
+// Define tools array
+const tools = [
+  sendGHLMessage,
+  extractLeadInfo,
+  getCalendarSlots,
+  bookAppointment,
+  updateGHLContact,
+  parseTimeSelection
+];
+
+// Bind tools to the model to ensure it knows they're available
+const modelWithTools = llm.bindTools(tools);
+
 export const graph = createReactAgent({
-  llm: new ChatOpenAI({ 
-    model: "gpt-4",
-    temperature: 0.7,
-    timeout: 30000, // 30 second timeout for LLM calls
-    maxRetries: 3
-  }),
-  tools: [
-    sendGHLMessage,
-    extractLeadInfo,
-    getCalendarSlots,
-    bookAppointment,
-    updateGHLContact,
-    parseTimeSelection
-  ],
+  llm: modelWithTools,
+  tools: tools,
   stateModifier: (state) => {
     // Add current lead info to the prompt if available
     let enhancedPrompt = SALES_AGENT_PROMPT;
@@ -532,6 +552,9 @@ export const graph = createReactAgent({
         enhancedPrompt += `\n\nINFORMACIÓN CONOCIDA DEL CLIENTE:\n${knownInfo.join('\n')}\n\nUSA ESTA INFORMACIÓN - NO LA PREGUNTES DE NUEVO.`;
       }
     }
+    
+    // Add a final reminder about tool usage
+    enhancedPrompt += `\n\n⚠️ FINAL REMINDER: You MUST use send_ghl_message tool to send ANY message to the customer. NEVER respond directly in the message content!`;
     
     const systemMessage = new SystemMessage(enhancedPrompt);
     return [systemMessage, ...state.messages];
@@ -613,7 +636,7 @@ export async function salesAgent(input, config) {
 }
 
 // Export tools for testing
-export const tools = {
+export const exportedTools = {
   sendGHLMessage,
   extractLeadInfo,
   getCalendarSlots,
