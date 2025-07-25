@@ -1,6 +1,6 @@
 {
   "runtime": "nodejs",
-  "node_version": "18",
+  "node_version": "20",
   "dependencies": ["./package.json"],
   "graphs": {
     "sales_agent": "./agents/salesAgent.js"
