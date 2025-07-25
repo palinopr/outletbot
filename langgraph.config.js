@@ -14,11 +14,13 @@ export default {
     routes: {
       "/webhook/meta-lead": {
         method: "POST",
-        handler: "handleWebhook"
+        handler: "handleWebhook",
+        public: true  // Make webhook public
       },
       "/health": {
         method: "GET", 
-        handler: "healthCheck"
+        handler: "healthCheck",
+        public: true  // Make health check public
       }
     }
   },
