@@ -1,8 +1,8 @@
 // LangSmith configuration for deployment and tracing
-const { Client } = require("langsmith");
+import { Client } from "langsmith";
 
 // Initialize LangSmith client
-const initLangSmith = () => {
+export const initLangSmith = () => {
   // Set up tracing
   process.env.LANGCHAIN_TRACING_V2 = "true";
   process.env.LANGCHAIN_PROJECT = process.env.LANGSMITH_PROJECT || "outlet-media-bot";
@@ -19,7 +19,7 @@ const initLangSmith = () => {
 };
 
 // Helper to wrap agent calls with tracing
-const traceAgent = async (agentName, func, metadata = {}) => {
+export const traceAgent = async (agentName, func, metadata = {}) => {
   const runName = `${agentName}-${Date.now()}`;
   
   try {
@@ -31,9 +31,4 @@ const traceAgent = async (agentName, func, metadata = {}) => {
     console.error(`Error in trace ${runName}:`, error);
     throw error;
   }
-};
-
-module.exports = {
-  initLangSmith,
-  traceAgent
 };

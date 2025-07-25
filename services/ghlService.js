@@ -1,17 +1,25 @@
-const axios = require('axios');
+import axios from 'axios';
 
-class GHLService {
+export class GHLService {
   constructor(apiKey, locationId) {
     this.apiKey = apiKey;
     this.locationId = locationId;
     this.baseURL = 'https://services.leadconnectorhq.com';
   }
 
+  // Helper to add minutes to a time string
+  addMinutesToTime(timeString, minutes) {
+    const date = new Date(timeString);
+    date.setMinutes(date.getMinutes() + minutes);
+    return date.toISOString();
+  }
+
   // Get headers for GHL API requests
   getHeaders() {
     return {
       'Authorization': `Bearer ${this.apiKey}`,
-      'Content-Type': 'application/json'
+      'Content-Type': 'application/json',
+      'Version': '2021-07-28' // Required by GHL API
     };
   }
 
@@ -89,6 +97,20 @@ class GHLService {
     }
   }
 
+  // Get contact by ID
+  async getContact(contactId) {
+    try {
+      const response = await axios.get(
+        `${this.baseURL}/contacts/${contactId}`,
+        { headers: this.getHeaders() }
+      );
+      return response.data.contact;
+    } catch (error) {
+      console.error('Error getting contact:', error.response?.data);
+      throw error;
+    }
+  }
+
   // Add tags to contact
   async addTags(contactId, tags) {
     try {
@@ -125,20 +147,97 @@ class GHLService {
   // Get available calendar slots
   async getAvailableSlots(calendarId, startDate, endDate) {
     try {
+      // Convert dates to Unix timestamps (milliseconds)
+      const startTimestamp = new Date(startDate).getTime();
+      const endTimestamp = new Date(endDate).getTime();
+      
+      // Try v2 API endpoint structure
       const response = await axios.get(
-        `${this.baseURL}/calendars/${calendarId}/appointments/slots`,
+        `${this.baseURL}/calendars/${calendarId}/free-slots`,
         {
           headers: this.getHeaders(),
           params: {
-            startDate,
-            endDate,
-            timezone: 'America/New_York' // Adjust as needed
+            startDate: startTimestamp,
+            endDate: endTimestamp,
+            timezone: 'America/Chicago' // Texas Central Time
           }
         }
       );
-      return response.data.data; // GHL API returns data in a data property
+      // Handle GHL's date-grouped format
+      const data = response.data;
+      const allSlots = [];
+      
+      // If data has date keys (like "2025-07-29"), flatten all slots
+      for (const dateKey in data) {
+        if (data[dateKey] && data[dateKey].slots && Array.isArray(data[dateKey].slots)) {
+          data[dateKey].slots.forEach(slotTime => {
+            allSlots.push({
+              startTime: slotTime,
+              endTime: this.addMinutesToTime(slotTime, 30), // Assuming 30-min slots
+              date: dateKey
+            });
+          });
+        }
+      }
+      
+      // If no slots found in date format, try other formats
+      if (allSlots.length === 0) {
+        const slots = data.slots || data.data || [];
+        return Array.isArray(slots) ? slots : [];
+      }
+      
+      return allSlots;
     } catch (error) {
       console.error('Error getting calendar slots:', error.response?.data);
+      
+      // If v2 endpoint fails, try v1 endpoint
+      if (error.response?.status === 404 || error.response?.status === 422) {
+        try {
+          const startTimestamp = new Date(startDate).getTime();
+          const endTimestamp = new Date(endDate).getTime();
+          
+          const altResponse = await axios.get(
+            `${this.baseURL}/appointments/slots`,
+            {
+              headers: this.getHeaders(),
+              params: {
+                calendarId,
+                startDate: startTimestamp,
+                endDate: endTimestamp,
+                timezone: 'America/Chicago' // Texas Central Time
+              }
+            }
+          );
+          // Handle GHL's date-grouped format for fallback endpoint too
+          const data = altResponse.data;
+          const allSlots = [];
+          
+          // If data has date keys (like "2025-07-29"), flatten all slots
+          for (const dateKey in data) {
+            if (data[dateKey] && data[dateKey].slots && Array.isArray(data[dateKey].slots)) {
+              data[dateKey].slots.forEach(slotTime => {
+                allSlots.push({
+                  startTime: slotTime,
+                  endTime: this.addMinutesToTime(slotTime, 30), // Assuming 30-min slots
+                  date: dateKey
+                });
+              });
+            }
+          }
+          
+          // If no slots found in date format, try other formats
+          if (allSlots.length === 0) {
+            const slots = data.slots || data.data || [];
+            return Array.isArray(slots) ? slots : [];
+          }
+          
+          return allSlots;
+        } catch (altError) {
+          console.error('Alternative endpoint also failed:', altError.response?.data);
+          throw altError;
+        }
+      }
+      
       throw error;
     }
   }
@@ -167,13 +266,13 @@ class GHLService {
     }
   }
 
-  // Send SMS via GHL
+  // Send WhatsApp message via GHL
   async sendSMS(contactId, message) {
     try {
       const response = await axios.post(
         `${this.baseURL}/conversations/messages`,
         {
-          type: 'SMS',
+          type: 'WhatsApp',
           locationId: this.locationId,
           contactId,
           message: message
@@ -182,7 +281,7 @@ class GHLService {
       );
       return response.data;
     } catch (error) {
-      console.error('Error sending SMS:', error.response?.data);
+      console.error('Error sending WhatsApp message:', error.response?.data);
       throw error;
     }
   }
@@ -213,11 +312,20 @@ class GHLService {
         {
           headers: this.getHeaders(),
           params: {
-            limit: 100 // Get last 100 messages
+            limit: 100, // Get last 100 messages
+            type: 'TYPE_WHATSAPP,TYPE_SMS' // Get WhatsApp and SMS messages
           }
         }
       );
-      return response.data.messages || [];
+      
+      // Handle nested response structure
+      if (response.data.messages && response.data.messages.messages) {
+        return response.data.messages.messages;
+      }
+      
+      // Handle direct messages array
+      const messages = response.data.messages || response.data.data || response.data;
+      return Array.isArray(messages) ? messages : [];
     } catch (error) {
       console.error('Error fetching conversation messages:', error.response?.data);
       throw error;
@@ -241,19 +349,42 @@ class GHLService {
   // Get contact's active conversations
   async getContactConversations(contactId) {
     try {
+      // Try the contact-specific endpoint first
       const response = await axios.get(
-        `${this.baseURL}/conversations/search`,
+        `${this.baseURL}/contacts/${contactId}/conversations`,
         {
           headers: this.getHeaders(),
           params: {
-            locationId: this.locationId,
-            contactId: contactId,
             limit: 10
           }
         }
       );
-      return response.data.conversations || [];
+      // Handle different response formats from GHL
+      const conversations = response.data.conversations || response.data.data || response.data;
+      return Array.isArray(conversations) ? conversations : [];
     } catch (error) {
+      // If that fails, try the search endpoint
+      if (error.response?.status === 404) {
+        try {
+          const searchResponse = await axios.get(
+            `${this.baseURL}/conversations/search`,
+            {
+              headers: this.getHeaders(),
+              params: {
+                locationId: this.locationId,
+                contactId: contactId,
+                limit: 10
+              }
+            }
+          );
+          // Handle search response format
+          const conversations = searchResponse.data.conversations || searchResponse.data.data || searchResponse.data;
+          return Array.isArray(conversations) ? conversations : [];
+        } catch (searchError) {
+          console.error('Error searching conversations:', searchError.response?.data);
+          throw searchError;
+        }
+      }
       console.error('Error fetching contact conversations:', error.response?.data);
       throw error;
     }
@@ -274,18 +405,29 @@ class GHLService {
         return activeConversation;
       }
       
-      // If no active conversation, create a new one
-      return await this.createConversation(contactId);
+      // If no conversations API available, return a mock conversation object
+      // GHL handles conversations internally when sending messages
+      return {
+        id: `conv_${contactId}`,
+        contactId: contactId,
+        status: 'active',
+        locationId: this.locationId
+      };
     } catch (error) {
       console.error('Error getting/creating conversation:', error);
-      // Fallback to creating new conversation
-      return await this.createConversation(contactId);
+      // Return a mock conversation object as fallback
+      return {
+        id: `conv_${contactId}`,
+        contactId: contactId,
+        status: 'active',
+        locationId: this.locationId
+      };
     }
   }
 }
 
 // Helper function to format phone numbers for GHL
-function formatPhoneNumber(phone) {
+export function formatPhoneNumber(phone) {
   // Remove all non-numeric characters
   const cleaned = phone.replace(/\D/g, '');
   
@@ -298,8 +440,3 @@ function formatPhoneNumber(phone) {
   
   return `+${cleaned}`;
 }
-
-module.exports = { 
-  GHLService,
-  formatPhoneNumber
-};

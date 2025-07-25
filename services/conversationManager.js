@@ -1,6 +1,6 @@
-const { HumanMessage, AIMessage } = require('@langchain/core/messages');
+import { HumanMessage, AIMessage } from '@langchain/core/messages';
 
-class ConversationManager {
+export class ConversationManager {
   constructor(ghlService) {
     this.ghlService = ghlService;
     // Keep a small cache for performance (5 minute TTL)
@@ -171,4 +171,4 @@ class ConversationManager {
   }
 }
 
-module.exports = ConversationManager;
+export default ConversationManager;

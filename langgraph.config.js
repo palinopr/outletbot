@@ -1,16 +1,16 @@
 // LangGraph Platform Configuration
-module.exports = {
+export default {
   // Graph definition
   graphs: {
     sales_agent: {
-      path: "./agents/salesAgent.js",
-      entrypoint: "createSalesAgent"
+      path: "./agents/modernSalesAgent.js",
+      entrypoint: "salesAgent"
     }
   },
 
   // API Configuration
   api: {
-    path: "./api/langgraph-api.js",
+    path: "./api/modernLanggraphApi.js",
     routes: {
       "/webhook/meta-lead": {
         method: "POST",
@@ -68,7 +68,7 @@ module.exports = {
   deployment: {
     name: "outlet-media-sales-bot",
     description: "Sales qualification bot for Meta ads leads via GHL webhooks",
-    runtime: "nodejs18",
+    runtime: "nodejs20",
     memory: 512,
     timeout: 30,
     instances: {

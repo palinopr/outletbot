@@ -1,5 +1,5 @@
 // Validate required environment variables
-function validateEnv() {
+export function validateEnv() {
   const required = [
     'OPENAI_API_KEY',
     'GHL_API_KEY',
@@ -45,4 +45,3 @@ function validateEnv() {
   console.log('✅ Environment variables validated');
 }
 
-module.exports = { validateEnv };
