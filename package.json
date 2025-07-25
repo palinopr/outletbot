@@ -1,11 +1,11 @@
 {
   "name": "outlet-media-bot",
-  "version": "1.0.0",
-  "description": "",
+  "version": "2.0.0",
+  "description": "Spanish AI Sales Bot with Public Webhooks",
   "main": "index.js",
   "langgraph": {
     "config": "./langgraph.config.js",
-    "version": "1.0.0"
+    "version": "2.0.0"
   },
   "scripts": {
     "start": "node index.js",
