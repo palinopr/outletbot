@@ -14,9 +14,8 @@ This bot is ready for deployment on LangSmith/LangGraph Platform with modern `cr
 ### Key Files
 ```
 agents/salesAgent.js            # Main agent with tools
-api/langgraphApi.js            # Webhook handler
+agents/webhookHandler.js        # Webhook handler graph
 langgraph.json                  # Platform configuration
-langgraph.config.js            # Extended configuration
 ```
 
 ## Pre-Deployment Checklist
@@ -75,8 +74,10 @@ langgraph deployments list
 
 Your webhook URL will be:
 ```
-https://[deployment-id].langgraph.app/webhook/meta-lead
+https://[deployment-id].langgraph.app/runs/stream
 ```
+
+Note: Use the `webhook_handler` graph for processing webhooks.
 
 ### Option 2: GitHub Integration
 
@@ -105,9 +106,12 @@ git push origin main
 ### 1. Update GHL Webhook
 In GoHighLevel:
 ```
-Webhook URL: https://[deployment-id].langgraph.app/webhook/meta-lead
+Webhook URL: https://[deployment-id].langgraph.app/runs/stream
 Method: POST
-Headers: Content-Type: application/json
+Headers: 
+  Content-Type: application/json
+  X-API-Key: [your-langsmith-api-key]
+Graph: webhook_handler
 ```
 
 ### 2. Monitor in LangSmith
@@ -121,13 +125,18 @@ Headers: Content-Type: application/json
 
 ### 3. Test Webhook
 ```bash
-curl -X POST https://[deployment-id].langgraph.app/webhook/meta-lead \
+curl -X POST https://[deployment-id].langgraph.app/runs/stream \
   -H "Content-Type: application/json" \
+  -H "X-API-Key: your-langsmith-api-key" \
   -d '{
-    "phone": "+1234567890",
-    "message": "Hi, I need help with marketing",
-    "contactId": "test-contact-123",
-    "conversationId": "test-convo-123"
+    "assistant_id": "webhook_handler",
+    "input": {
+      "messages": [{
+        "role": "human",
+        "content": "{\"phone\": \"+1234567890\", \"message\": \"Hi, I need help with marketing\", \"contactId\": \"test-contact-123\", \"conversationId\": \"test-convo-123\"}"
+      }]
+    },
+    "stream_mode": ["values"]
   }'
 ```
 

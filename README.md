@@ -32,7 +32,7 @@ Built with the latest LangGraph patterns:
 ### Key Files
 ```
 agents/salesAgent.js           # createReactAgent implementation
-api/langgraphApi.js           # Webhook handler
+agents/webhookHandler.js       # Webhook handler graph
 langgraph.json                 # Platform configuration
 LANGSMITH_DEPLOYMENT.md        # Deployment guide
 ```
@@ -77,7 +77,7 @@ langgraph deploy --name outlet-media-bot
 langgraph deployments list
 ```
 
-Your webhook URL: `https://[deployment-id].langgraph.app/webhook/meta-lead`
+Your webhook URL: `https://[deployment-id].langgraph.app/runs/stream`
 
 ### GitHub Auto-Deploy
 
@@ -112,7 +112,7 @@ LANGSMITH_PROJECT=outlet-media-bot
 ### GHL Webhook Setup
 ```json
 {
-  "url": "https://your-deployment.langgraph.app/webhook/meta-lead",
+  "url": "https://your-deployment.langgraph.app/runs/stream",
   "method": "POST",
   "headers": {
     "Content-Type": "application/json"
@@ -133,7 +133,7 @@ LANGSMITH_PROJECT=outlet-media-bot
 node test-modern-agent.js
 
 # Test specific webhook
-curl -X POST http://localhost:4000/webhook/meta-lead \
+curl -X POST http://localhost:4000/runs/stream \
   -H "Content-Type: application/json" \
   -d '{
     "phone": "+1234567890",

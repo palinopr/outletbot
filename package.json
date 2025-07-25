@@ -5,7 +5,9 @@
   "main": "agents/salesAgent.js",
   "scripts": {
     "test": "node test-components.js",
-    "test:components": "node test-components.js"
+    "test:components": "node test-components.js",
+    "build": "npx @langchain/langgraph-cli build -t outlet-media-bot",
+    "dev": "npx @langchain/langgraph-cli dev"
   },
   "keywords": [],
   "author": "",

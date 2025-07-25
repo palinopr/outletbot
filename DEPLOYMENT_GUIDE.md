@@ -35,7 +35,7 @@
 langgraph deploy
 
 # Your webhook URL will be:
-https://your-app.langgraph.app/webhook
+https://your-app.langgraph.app/runs/stream
 ```
 
 ### 2. Set Up GHL Webhook
@@ -43,7 +43,7 @@ https://your-app.langgraph.app/webhook
 In your GHL account:
 1. Go to Settings → Webhooks
 2. Create new webhook
-3. URL: `https://your-app.langgraph.app/webhook`
+3. URL: `https://your-app.langgraph.app/runs/stream`
 4. Events: Select "Inbound Message"
 5. Save and test
 

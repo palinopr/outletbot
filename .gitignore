@@ -68,3 +68,5 @@ __pycache__/
 
 # Docker
 .docker/
+# LangGraph API
+.langgraph_api

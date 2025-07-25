@@ -1,17 +1,9 @@
 {
-  "runtime": "nodejs",
   "node_version": "20",
-  "dependencies": ["./package.json"],
+  "dependencies": ["."],
   "graphs": {
-    "sales_agent": "./agents/salesAgent.js:default"
+    "sales_agent": "./agents/salesAgent.js:graph",
+    "webhook_handler": "./agents/webhookHandler.js:graph"
   },
-  "env": {
-    "OPENAI_API_KEY": "",
-    "GHL_API_KEY": "",
-    "GHL_LOCATION_ID": "",
-    "GHL_CALENDAR_ID": "",
-    "LANGSMITH_API_KEY": "",
-    "LANGSMITH_PROJECT": "outlet-media-bot",
-    "LANGCHAIN_TRACING_V2": "true"
-  }
+  "env": ".env"
 }

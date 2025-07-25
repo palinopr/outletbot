@@ -8,8 +8,11 @@
 
 ### Basic Settings:
 - **Name**: Meta Ads Sales Bot
-- **URL**: `https://your-domain.com/webhook`
+- **URL**: `https://[deployment-id].langgraph.app/runs/stream` (for webhook_handler graph)
 - **Version**: V2
+- **Headers**: 
+  - `X-API-Key`: Your LangSmith API Key
+  - `Content-Type`: application/json
 
 ### Events to Subscribe:
 - ✅ **Inbound Message** (Required)

@@ -1,17 +1,22 @@
 {
-  "webhookUrl": "https://your-domain.com/webhook",
+  "webhookUrl": "https://[deployment-id].langgraph.app/runs/stream",
   "webhookName": "Meta Ads Sales Bot",
   "webhookTriggers": [
     "InboundMessage"
   ],
   "webhookHeaders": {
-    "Content-Type": "application/json"
+    "Content-Type": "application/json",
+    "X-API-Key": "[your-langsmith-api-key]"
   },
   "webhookPayloadTemplate": {
-    "phone": "{{Contact.Phone}}",
-    "message": "{{Message.Body}}",
-    "contactId": "{{Contact.Id}}",
-    "conversationId": "{{Conversation.Id}}"
+    "assistant_id": "webhook_handler",
+    "input": {
+      "messages": [{
+        "role": "human", 
+        "content": "{\"phone\": \"{{Contact.Phone}}\", \"message\": \"{{Message.Body}}\", \"contactId\": \"{{Contact.Id}}\", \"conversationId\": \"{{Conversation.Id}}\"}"
+      }]
+    },
+    "stream_mode": ["values"]
   },
   "customFieldMapping": {
     "phone": {
@@ -40,9 +45,13 @@
     "maxRetries": 3
   },
   "examplePayload": {
-    "phone": "+15551234567",
-    "message": "Hi, I saw your ad on Facebook",
-    "contactId": "9NkT25Vor1v4aQatFsv2",
-    "conversationId": "fcanlLgpbQgQhderivVs"
+    "assistant_id": "webhook_handler",
+    "input": {
+      "messages": [{
+        "role": "human",
+        "content": "{\"phone\": \"+15551234567\", \"message\": \"Hi, I saw your ad on Facebook\", \"contactId\": \"9NkT25Vor1v4aQatFsv2\", \"conversationId\": \"fcanlLgpbQgQhderivVs\"}"
+      }]
+    },
+    "stream_mode": ["values"]
   }
 }

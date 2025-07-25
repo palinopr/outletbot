@@ -458,8 +458,9 @@ UPDATE GHL at each stage:
 
 Remember: Every send_ghl_message call must use the contactId from the conversation state!`;
 
-// Create the base agent
-const baseAgent = createReactAgent({
+
+// Create the agent - direct export from createReactAgent
+export const graph = createReactAgent({
   llm: new ChatOpenAI({ 
     model: "gpt-4",
     temperature: 0.7 
@@ -472,56 +473,45 @@ const baseAgent = createReactAgent({
     updateGHLContact,    // Update tags/notes
     parseTimeSelection   // Parse time selection
   ],
-  prompt: SALES_AGENT_PROMPT
+  stateModifier: (state) => {
+    // Create system message with the prompt
+    const systemMessage = new SystemMessage(SALES_AGENT_PROMPT);
+    
+    // Check if we have contactId in state
+    const contactId = state.contactId || state.configurable?.contactId;
+    
+    if (contactId) {
+      // Add contactId context
+      const contextMessage = new SystemMessage(
+        `CRITICAL CONTEXT FOR THIS CONVERSATION:
+The contactId for this conversation is: ${contactId}
+You MUST use this exact contactId when calling ANY tools.
+Example: send_ghl_message({"contactId": "${contactId}", "message": "your message"})`
+      );
+      return [systemMessage, contextMessage, ...state.messages];
+    }
+    
+    // Return messages with just the system prompt
+    return [systemMessage, ...state.messages];
+  }
 });
 
-/**
- * Wrapper for the sales agent that injects contactId into the conversation
- * This ensures the agent knows which contactId to use when calling tools
- */
+// For backward compatibility and local testing
 export async function salesAgent(input, config) {
+  // Log for debugging
   console.log('Agent invoked with input:', JSON.stringify(input, null, 2));
-  console.log('Agent invoked with config:', JSON.stringify(config, null, 2));
   
-  // Handle both direct input and LangGraph Platform format
-  let messages, contactId, conversationId, phone, rest = {};
+  // LangGraph Platform passes contactId in configurable
+  const enhancedConfig = {
+    ...config,
+    configurable: {
+      ...config?.configurable,
+      contactId: input.contactId || config?.configurable?.contactId
+    }
+  };
   
-  // Check if input has messages directly (LangGraph Platform format)
-  if (input.messages) {
-    ({ messages, contactId, conversationId, phone, ...rest } = input);
-  } else {
-    // Try to extract from nested structure if exists
-    console.error('Unexpected input format - no messages found at input.messages');
-    throw new Error('Invalid input format - messages not found');
-  }
-  
-  if (!contactId) {
-    console.error('contactId missing from input:', JSON.stringify(input, null, 2));
-    throw new Error('contactId is required for the sales agent');
-  }
-  
-  // Create a system message that provides the contactId context
-  const contextMessage = new SystemMessage(
-    `IMPORTANT: The current contactId for this conversation is: ${contactId}
-    You MUST use this exact contactId when calling send_ghl_message and other tools.
-    Example: send_ghl_message({"contactId": "${contactId}", "message": "your message"})`
-  );
-  
-  // Prepend the context message to the conversation
-  const messagesWithContext = [contextMessage, ...messages];
-  
-  // Call the original agent with the modified messages
-  return baseAgent.invoke({
-    messages: messagesWithContext,
-    contactId,
-    conversationId,
-    phone,
-    ...rest
-  }, config);
+  return graph.invoke(input, enhancedConfig);
 }
-
-// For LangGraph deployment
-export default salesAgent;
 
 // Export tools for testing
 export const tools = {
