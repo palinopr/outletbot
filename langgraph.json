@@ -3,7 +3,7 @@
   "node_version": "20",
   "dependencies": ["./package.json"],
   "graphs": {
-    "sales_agent": "./agents/modernSalesAgent.js:salesAgent"
+    "sales_agent": "./agents/salesAgentWithContext.js:default"
   },
   "api": {
     "path": "./api/modernLanggraphApi.js"
