@@ -13,8 +13,8 @@ This bot is ready for deployment on LangSmith/LangGraph Platform with modern `cr
 
 ### Key Files
 ```
-agents/modernSalesAgent.js       # Main agent with tools
-api/modernLanggraphApi.js       # Webhook handler
+agents/salesAgent.js            # Main agent with tools
+api/langgraphApi.js            # Webhook handler
 langgraph.json                  # Platform configuration
 langgraph.config.js            # Extended configuration
 ```

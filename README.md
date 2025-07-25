@@ -31,8 +31,8 @@ Built with the latest LangGraph patterns:
 
 ### Key Files
 ```
-agents/modernSalesAgent.js      # createReactAgent implementation
-api/modernLanggraphApi.js      # Webhook handler
+agents/salesAgent.js           # createReactAgent implementation
+api/langgraphApi.js           # Webhook handler
 langgraph.json                 # Platform configuration
 LANGSMITH_DEPLOYMENT.md        # Deployment guide
 ```

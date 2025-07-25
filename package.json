@@ -2,25 +2,14 @@
   "name": "outlet-media-bot",
   "version": "2.0.0",
   "description": "Spanish AI Sales Bot with Public Webhooks",
-  "main": "index.js",
+  "main": "api/langgraphApi.js",
   "langgraph": {
     "config": "./langgraph.config.js",
     "version": "2.0.0"
   },
   "scripts": {
-    "start": "node index.js",
-    "dev": "nodemon index.js",
-    "start:prod": "NODE_ENV=production node index.production.js",
-    "pm2:start": "pm2 start ecosystem.config.js",
-    "pm2:stop": "pm2 stop outlet-media-bot",
-    "pm2:restart": "pm2 restart outlet-media-bot",
-    "pm2:logs": "pm2 logs outlet-media-bot",
-    "pm2:monitor": "pm2 monit",
-    "docker:build": "docker build -t outlet-media-bot .",
-    "docker:run": "docker run -d --env-file .env -p 3000:3000 --name outlet-media-bot outlet-media-bot",
-    "docker:compose": "docker-compose up -d",
-    "docker:down": "docker-compose down",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "node test-components.js",
+    "test:components": "node test-components.js"
   },
   "keywords": [],
   "author": "",

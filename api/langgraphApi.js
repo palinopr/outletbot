@@ -51,7 +51,7 @@ export async function handleWebhook(req) {
       };
     }
     
-    console.log('Modern webhook received:', { contactId, conversationId, message });
+    console.log('Webhook received:', { contactId, conversationId, message });
     
     // Get conversation state from GHL
     let conversationState = await conversationManager.getConversationState(contactId, conversationId);
@@ -72,7 +72,7 @@ export async function handleWebhook(req) {
       phone: formatPhoneNumber(phone)
     };
     
-    // Invoke the modern agent
+    // Invoke the agent
     const result = await salesAgent.invoke({
       messages,
       // Pass current lead info as context
@@ -207,7 +207,7 @@ Appointment: ${conversationState.appointmentScheduled ? 'Scheduled' : 'Not sched
     };
     
   } catch (error) {
-    console.error('Modern webhook error:', error);
+    console.error('Webhook error:', error);
     return {
       statusCode: 500,
       body: { success: false, error: error.message }
@@ -249,7 +249,7 @@ export async function healthCheck(req) {
     statusCode: 200,
     body: {
       status: 'ok',
-      version: '2.0.0', // Modern version
+      version: '2.0.0',
       platform: 'langgraph',
       pattern: 'createReactAgent',
       timestamp: new Date().toISOString()

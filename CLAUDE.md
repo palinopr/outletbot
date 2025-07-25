@@ -14,14 +14,14 @@ This is a LangGraph-based sales agent that qualifies leads from Meta ads through
 
 ### Core Components
 
-1. **Modern Sales Agent** (`agents/modernSalesAgent.js`)
+1. **Sales Agent** (`agents/salesAgent.js`)
    - Uses `createReactAgent` pattern (latest LangGraph)
    - 6 Zod-validated tools with type safety
    - All messages sent via `sendGHLMessage` tool
    - Strict qualification flow enforcement
    - Exports `salesAgent` graph instance
 
-2. **API Handler** (`api/modernLanggraphApi.js`)
+2. **API Handler** (`api/langgraphApi.js`)
    - Modern webhook handler for LangGraph Platform
    - Does NOT send webhook responses
    - Agent handles all messaging via tools
@@ -237,8 +237,8 @@ node test-components.js
 ## Files Structure
 
 ### Core Implementation
-- `agents/modernSalesAgent.js` - Main agent with 6 tools
-- `api/modernLanggraphApi.js` - Webhook handler
+- `agents/salesAgent.js` - Main agent with 6 tools
+- `api/langgraphApi.js` - Webhook handler
 - `services/ghlService.js` - GHL API integration
 - `services/conversationManager.js` - Message history
 

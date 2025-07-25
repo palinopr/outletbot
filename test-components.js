@@ -122,7 +122,7 @@ async function testTools() {
     ];
     
     const result = await tools.parseTimeSelection.invoke({
-      userInput: "I'll take the Tuesday slot",
+      userMessage: "I'll take the Tuesday slot",
       availableSlots: testSlots
     }, config);
     
