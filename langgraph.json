@@ -5,9 +5,6 @@
   "graphs": {
     "sales_agent": "./agents/salesAgent.js:default"
   },
-  "api": {
-    "path": "./api/index.js"
-  },
   "env": {
     "OPENAI_API_KEY": "",
     "GHL_API_KEY": "",

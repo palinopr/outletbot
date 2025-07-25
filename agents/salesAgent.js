@@ -480,22 +480,23 @@ const baseAgent = createReactAgent({
  * This ensures the agent knows which contactId to use when calling tools
  */
 export async function salesAgent(input, config) {
+  console.log('Agent invoked with input:', JSON.stringify(input, null, 2));
+  console.log('Agent invoked with config:', JSON.stringify(config, null, 2));
+  
   // Handle both direct input and LangGraph Platform format
   let messages, contactId, conversationId, phone, rest = {};
   
+  // Check if input has messages directly (LangGraph Platform format)
   if (input.messages) {
-    // Direct format
     ({ messages, contactId, conversationId, phone, ...rest } = input);
-  } else if (input.input?.messages) {
-    // LangGraph Platform format
-    messages = input.input.messages;
-    contactId = input.input.contactId || input.config?.configurable?.contactId;
-    conversationId = input.input.conversationId || input.config?.configurable?.conversationId;
-    phone = input.input.phone || input.config?.configurable?.phone;
+  } else {
+    // Try to extract from nested structure if exists
+    console.error('Unexpected input format - no messages found at input.messages');
+    throw new Error('Invalid input format - messages not found');
   }
   
   if (!contactId) {
-    console.error('Input received:', JSON.stringify(input, null, 2));
+    console.error('contactId missing from input:', JSON.stringify(input, null, 2));
     throw new Error('contactId is required for the sales agent');
   }
   
