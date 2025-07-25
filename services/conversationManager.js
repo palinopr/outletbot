@@ -9,7 +9,10 @@ export class ConversationManager {
   }
 
   // Get conversation state from GHL
-  async getConversationState(contactId, conversationId) {
+  async getConversationState(contactId, conversationId, phone = null) {
+    let messages = [];
+    let conversation = null;
+    
     try {
       // Check cache first
       const cacheKey = `${contactId}-${conversationId}`;
@@ -19,19 +22,25 @@ export class ConversationManager {
       }
 
       // Get conversation from GHL
-      let conversation;
-      if (conversationId) {
+      console.log(`Getting conversation for contactId: ${contactId}, conversationId: ${conversationId || 'not provided'}`);
+      
+      if (conversationId && !conversationId.startsWith('conv_')) {
+        // Real conversation ID provided
         conversation = await this.ghlService.getConversation(conversationId);
       } else {
-        conversation = await this.ghlService.getOrCreateConversation(contactId);
+        // Need to find or create conversation
+        conversation = await this.ghlService.getOrCreateConversation(contactId, phone);
         conversationId = conversation.id;
+        console.log(`Created/retrieved conversation with ID: ${conversationId}`);
       }
 
       // Get conversation messages from GHL
       const ghlMessages = await this.ghlService.getConversationMessages(conversationId);
+      console.log(`Fetched ${ghlMessages.length} messages from GHL for conversation ${conversationId}`);
       
       // Convert GHL messages to LangChain format
-      const messages = this.convertGHLMessages(ghlMessages);
+      messages = this.convertGHLMessages(ghlMessages);
+      console.log(`Converted to ${messages.length} LangChain messages`);
       
       // Extract lead information from messages and contact
       const leadInfo = await this.extractLeadInfo(messages, contactId);
@@ -39,11 +48,11 @@ export class ConversationManager {
       // Build conversation state
       const state = {
         conversationId,
-        leadPhone: conversation.contactPhone || leadInfo.phone,
+        leadPhone: conversation.phone || (leadInfo && leadInfo.phone) || phone,
         ghlContactId: contactId,
         messages,
         messageCount: messages.length,
-        ...leadInfo,
+        ...(leadInfo || {}),
         lastActivity: Date.now()
       };
 
@@ -56,12 +65,23 @@ export class ConversationManager {
       return state;
     } catch (error) {
       console.error('Error getting conversation state:', error);
-      // Return minimal state on error
+      // Return state with whatever we managed to fetch
       return {
-        conversationId,
+        conversationId: conversationId || 'unknown',
+        leadPhone: (conversation && conversation.phone) || phone || 'unknown',
         ghlContactId: contactId,
-        messages: [],
-        messageCount: 0,
+        messages: messages,
+        messageCount: messages.length,
+        leadName: null,
+        leadProblem: null,
+        leadGoal: null,
+        leadBudget: null,
+        leadEmail: null,
+        currentStep: 'greeting',
+        qualificationStatus: 'in_progress',
+        ghlTags: [],
+        ghlNotes: [],
+        appointmentScheduled: false,
         lastActivity: Date.now()
       };
     }
@@ -70,6 +90,13 @@ export class ConversationManager {
   // Convert GHL messages to LangChain format
   convertGHLMessages(ghlMessages) {
     const messages = [];
+    
+    // Debug logging commented out for performance
+    // console.log('Converting GHL messages:', ghlMessages.map(m => ({
+    //   direction: m.direction,
+    //   body: m.body?.substring(0, 50) + '...',
+    //   dateAdded: m.dateAdded
+    // })));
     
     // Sort messages by date (oldest first)
     const sortedMessages = [...ghlMessages].sort((a, b) => 
@@ -83,6 +110,8 @@ export class ConversationManager {
         messages.push(new AIMessage(msg.body || msg.message));
       }
     }
+    
+    console.log(`Converted messages: ${messages.length} (${messages.filter(m => m instanceof HumanMessage).length} human, ${messages.filter(m => m instanceof AIMessage).length} AI)`);
     
     return messages;
   }
@@ -103,10 +132,10 @@ export class ConversationManager {
     };
 
     try {
-      // Get contact details from GHL
-      const contact = await this.ghlService.findContactByPhone(contactId);
+      // Get contact details from GHL using contact ID
+      const contact = await this.ghlService.getContact(contactId);
       if (contact) {
-        info.leadName = contact.firstName || contact.name;
+        info.leadName = contact.firstName || contact.name || contact.contactName;
         info.leadEmail = contact.email;
         info.leadPhone = contact.phone;
         
@@ -122,7 +151,8 @@ export class ConversationManager {
         }
       }
     } catch (error) {
-      console.error('Error fetching contact details:', error);
+      console.error(`Error fetching contact ${contactId}:`, error.message);
+      // Continue without contact details - we can still use message history
     }
 
     // Analyze messages to extract missing information
@@ -148,7 +178,7 @@ export class ConversationManager {
     } else if (info.leadEmail && !info.appointmentScheduled) {
       info.currentStep = 'scheduling';
     } else if (info.appointmentScheduled) {
-      info.currentStep = 'confirmed';
+      info.currentStep = 'completed';
     }
 
     return info;

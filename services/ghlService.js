@@ -312,20 +312,29 @@ export class GHLService {
         {
           headers: this.getHeaders(),
           params: {
-            limit: 100, // Get last 100 messages
-            type: 'TYPE_WHATSAPP,TYPE_SMS' // Get WhatsApp and SMS messages
+            limit: 100 // Get last 100 messages
+            // Don't filter by type - GHL shows WhatsApp as TYPE_PHONE
           }
         }
       );
       
+      console.log('GHL messages response structure:', {
+        hasMessages: !!response.data.messages,
+        hasNestedMessages: !!(response.data.messages && response.data.messages.messages),
+        dataKeys: Object.keys(response.data)
+      });
+      
       // Handle nested response structure
       if (response.data.messages && response.data.messages.messages) {
+        console.log(`Found ${response.data.messages.messages.length} messages in nested structure`);
         return response.data.messages.messages;
       }
       
       // Handle direct messages array
       const messages = response.data.messages || response.data.data || response.data;
-      return Array.isArray(messages) ? messages : [];
+      const result = Array.isArray(messages) ? messages : [];
+      console.log(`Returning ${result.length} messages from GHL`);
+      return result;
     } catch (error) {
       console.error('Error fetching conversation messages:', error.response?.data);
       throw error;
@@ -390,10 +399,51 @@ export class GHLService {
     }
   }
 
-  // Get or create conversation for contact
-  async getOrCreateConversation(contactId) {
+  // Search for conversations by phone number
+  async searchConversationsByPhone(phone) {
     try {
-      // First try to get existing conversations
+      const formattedPhone = formatPhoneNumber(phone);
+      console.log(`Searching conversations for phone: ${formattedPhone}`);
+      
+      const response = await axios.get(
+        `${this.baseURL}/conversations/search`,
+        {
+          headers: this.getHeaders(),
+          params: {
+            locationId: this.locationId,
+            q: formattedPhone,
+            limit: 10
+          }
+        }
+      );
+      
+      const conversations = response.data.conversations || response.data || [];
+      console.log(`Found ${conversations.length} conversations for phone ${formattedPhone}`);
+      
+      return conversations;
+    } catch (error) {
+      console.error('Error searching conversations:', error.response?.data);
+      return [];
+    }
+  }
+  
+  // Get or create conversation for contact
+  async getOrCreateConversation(contactId, phone = null) {
+    try {
+      // If we have a phone number, try searching by phone first
+      if (phone) {
+        const conversationsByPhone = await this.searchConversationsByPhone(phone);
+        if (conversationsByPhone.length > 0) {
+          // Return the most recent conversation
+          const sortedConvs = conversationsByPhone.sort((a, b) => 
+            new Date(b.dateUpdated || b.dateAdded) - new Date(a.dateUpdated || a.dateAdded)
+          );
+          console.log(`Using existing conversation ${sortedConvs[0].id} found by phone search`);
+          return sortedConvs[0];
+        }
+      }
+      
+      // Try to get existing conversations by contact ID
       const conversations = await this.getContactConversations(contactId);
       
       // Find the most recent active conversation
@@ -405,8 +455,18 @@ export class GHLService {
         return activeConversation;
       }
       
-      // If no conversations API available, return a mock conversation object
-      // GHL handles conversations internally when sending messages
+      // If no conversations found, try to create one
+      try {
+        const newConversation = await this.createConversation(contactId);
+        console.log(`Created new conversation ${newConversation.id}`);
+        return newConversation;
+      } catch (createError) {
+        console.error('Failed to create conversation:', createError.response?.data);
+      }
+      
+      // If all else fails, return a mock conversation object
+      // This should rarely happen
+      console.warn('Using mock conversation ID as last resort');
       return {
         id: `conv_${contactId}`,
         contactId: contactId,

@@ -4,6 +4,17 @@ import { z } from "zod";
 import { ChatOpenAI } from "@langchain/openai";
 import { SystemMessage } from "@langchain/core/messages";
 
+// Agent configuration with timeout and retry handling
+const AGENT_CONFIG = {
+  conversationTimeout: 300000, // 5 minutes total
+  retryConfig: {
+    maxRetries: 3,
+    retryDelay: 1000,
+    retryMultiplier: 2,
+    retryableErrors: ['CancelledError', 'TimeoutError', 'ECONNRESET', 'ETIMEDOUT']
+  }
+};
+
 // Tool: Extract lead information from messages
 const extractLeadInfo = tool(
   async ({ message, currentInfo }) => {
@@ -19,9 +30,11 @@ const extractLeadInfo = tool(
     - BusinessType (restaurant, store, clinic, salon, etc)
     - Problem/Pain point
     - Goal
-    - Budget (extract number if mentioned)
+    - Budget (IMPORTANT: Look for numbers with "mes", "mensual", "al mes", "por mes", "$". Examples: "500 al mes" = 500, "$1000 mensual" = 1000)
     - Email
     - Any specific details about their business
+    
+    For budget, if you see a number followed by any monthly indicator, extract just the number.
     
     Return ONLY a JSON object with any new/updated fields: {"name": null, "businessType": null, "problem": null, "goal": null, "budget": null, "email": null, "businessDetails": null}`;
     
@@ -399,6 +412,13 @@ const sendGHLMessage = tool(
 const SALES_AGENT_PROMPT = `You are María, an AI-powered sales consultant for Outlet Media - and you're PROUD of being AI! 
 You help businesses automate their customer interactions just like you're doing right now.
 
+CRITICAL CONTEXT AWARENESS: 
+- ALWAYS review the entire conversation history before responding
+- Remember what the customer has already told you (name, business type, problem, goal, budget, email)
+- Never ask for information that was already provided in previous messages
+- Reference previous parts of the conversation to show you remember
+- If returning to a conversation, acknowledge what was discussed before
+
 CRITICAL: All messages to customers MUST be sent using the send_ghl_message tool. 
 You are NOT responding to a webhook - you're sending WhatsApp messages through GHL's messaging system.
 
@@ -445,6 +465,12 @@ CONVERSATION RULES:
 3. Use emojis intelligently (not too many): 📊 📈 🚀 💡 ✨
 4. If they test you or ask if you're real: "¡Soy 100% AI y orgullosa de serlo! 🤖 Justo como las soluciones que implementamos para tu negocio"
 
+IMPORTANT: ALWAYS use extract_lead_info tool on EVERY customer message to check for:
+- Budget mentions (numbers with "mes", "mensual", "al mes", etc.)
+- Email addresses
+- Business details
+- Any other relevant information
+
 STRICT QUALIFICATION FLOW:
 1. Saludo y preguntar por el nombre
 2. Preguntar sobre su problema o necesidad
@@ -472,44 +498,118 @@ UPDATE GHL at each stage:
 `;
 
 
-// Create the agent - direct export from createReactAgent
+// Create the agent following LangGraph patterns
 export const graph = createReactAgent({
   llm: new ChatOpenAI({ 
     model: "gpt-4",
-    temperature: 0.7 
+    temperature: 0.7,
+    timeout: 30000, // 30 second timeout for LLM calls
+    maxRetries: 3
   }),
   tools: [
-    sendGHLMessage,      // FIRST - for sending all messages
-    extractLeadInfo,     // Extract info from messages
-    getCalendarSlots,    // Get slots ONLY after full qualification
-    bookAppointment,     // Book the appointment
-    updateGHLContact,    // Update tags/notes
-    parseTimeSelection   // Parse time selection
+    sendGHLMessage,
+    extractLeadInfo,
+    getCalendarSlots,
+    bookAppointment,
+    updateGHLContact,
+    parseTimeSelection
   ],
   stateModifier: (state) => {
-    // Create system message with the prompt
-    const systemMessage = new SystemMessage(SALES_AGENT_PROMPT);
+    // Add current lead info to the prompt if available
+    let enhancedPrompt = SALES_AGENT_PROMPT;
     
-    // Return messages with the system prompt
+    if (state.leadInfo) {
+      const info = state.leadInfo;
+      const knownInfo = [];
+      if (info.name) knownInfo.push(`Nombre: ${info.name}`);
+      if (info.businessType) knownInfo.push(`Tipo de negocio: ${info.businessType}`);
+      if (info.problem) knownInfo.push(`Problema: ${info.problem}`);
+      if (info.goal) knownInfo.push(`Meta: ${info.goal}`);
+      if (info.budget) knownInfo.push(`Presupuesto: $${info.budget}/mes`);
+      if (info.email) knownInfo.push(`Email: ${info.email}`);
+      
+      if (knownInfo.length > 0) {
+        enhancedPrompt += `\n\nINFORMACIÓN CONOCIDA DEL CLIENTE:\n${knownInfo.join('\n')}\n\nUSA ESTA INFORMACIÓN - NO LA PREGUNTES DE NUEVO.`;
+      }
+    }
+    
+    const systemMessage = new SystemMessage(enhancedPrompt);
     return [systemMessage, ...state.messages];
   }
+  // Removed interruptBefore to allow autonomous tool execution
 });
 
-// For backward compatibility and local testing
+// Enhanced sales agent with error recovery
 export async function salesAgent(input, config) {
-  // Log for debugging
-  console.log('Agent invoked with input:', JSON.stringify(input, null, 2));
+  // console.log('Agent invoked with input:', JSON.stringify(input, null, 2));
+  console.log(`Agent received ${input.messages?.length || 0} messages in conversation history`);
   
-  // LangGraph Platform passes contactId in configurable
+  const startTime = Date.now();
+  
+  // Enhanced config with timeout tracking
   const enhancedConfig = {
     ...config,
     configurable: {
       ...config?.configurable,
-      contactId: input.contactId || config?.configurable?.contactId
+      contactId: input.contactId || config?.configurable?.contactId,
+      conversationStartTime: startTime,
+      agentConfig: AGENT_CONFIG
     }
   };
   
-  return graph.invoke(input, enhancedConfig);
+  try {
+    // Set overall timeout for the conversation
+    const conversationTimeoutPromise = new Promise((_, reject) => {
+      setTimeout(() => {
+        reject(new Error('Conversation timeout exceeded'));
+      }, AGENT_CONFIG.conversationTimeout);
+    });
+    
+    // Run agent with timeout and recursion limit
+    const result = await Promise.race([
+      graph.invoke(input, {
+        ...enhancedConfig,
+        recursionLimit: 25 // Prevent infinite loops
+      }),
+      conversationTimeoutPromise
+    ]);
+    
+    console.log(`Conversation completed in ${Date.now() - startTime}ms`);
+    return result;
+    
+  } catch (error) {
+    console.error('Agent error:', error);
+    
+    // Handle specific error types
+    if (error.message === 'Conversation timeout exceeded') {
+      return {
+        messages: [
+          ...input.messages,
+          {
+            role: 'assistant',
+            content: 'Lo siento, la conversación tardó demasiado. Por favor, intenta de nuevo o contacta soporte.'
+          }
+        ]
+      };
+    }
+    
+    // Handle cancellation errors
+    if (error.name === 'CancelledError' || error.message.includes('cancelled')) {
+      console.log('Operation was cancelled - likely due to platform restart');
+      return {
+        messages: [
+          ...input.messages,
+          {
+            role: 'assistant',
+            content: 'Hubo una interrupción temporal. Por favor, envía tu mensaje nuevamente.'
+          }
+        ]
+      };
+    }
+    
+    // Re-throw other errors
+    throw error;
+  }
 }
 
 // Export tools for testing
@@ -521,3 +621,9 @@ export const tools = {
   updateGHLContact,
   parseTimeSelection
 };
+
+// Export configuration for monitoring
+export const agentConfig = AGENT_CONFIG;
+
+// Export prompt for reuse
+export { SALES_AGENT_PROMPT };
