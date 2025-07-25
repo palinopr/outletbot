@@ -1,5 +1,5 @@
 {
-  "webhookUrl": "https://your-domain.com/webhook/meta-lead",
+  "webhookUrl": "https://your-domain.com/webhook",
   "webhookName": "Meta Ads Sales Bot",
   "webhookTriggers": [
     "InboundMessage"

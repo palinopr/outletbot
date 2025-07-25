@@ -10,9 +10,9 @@ export default {
 
   // API Configuration
   api: {
-    path: "./api/langgraphApi.js",
+    path: "./api/index.js",
     routes: {
-      "/webhook/meta-lead": {
+      "/webhook": {
         method: "POST",
         handler: "handleWebhook",
         public: true  // Make webhook public

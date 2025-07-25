@@ -8,7 +8,7 @@
 
 ### Basic Settings:
 - **Name**: Meta Ads Sales Bot
-- **URL**: `https://your-domain.com/webhook/meta-lead`
+- **URL**: `https://your-domain.com/webhook`
 - **Version**: V2
 
 ### Events to Subscribe:
