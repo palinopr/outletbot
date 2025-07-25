@@ -211,7 +211,16 @@ const bookAppointment = tool(
 // Tool: Update GHL contact
 const updateGHLContact = tool(
   async ({ contactId, tags, notes, leadInfo }, config) => {
-    const { ghlService } = config.configurable;
+    // Initialize GHL service if not provided
+    let ghlService = config?.configurable?.ghlService;
+    
+    if (!ghlService) {
+      const { GHLService } = await import('../services/ghlService.js');
+      ghlService = new GHLService(
+        process.env.GHL_API_KEY,
+        process.env.GHL_LOCATION_ID
+      );
+    }
     
     try {
       // Update tags
@@ -300,7 +309,17 @@ const parseTimeSelection = tool(
 // Tool: Send message via GHL WhatsApp (NOT webhook response)
 const sendGHLMessage = tool(
   async ({ contactId, message }, config) => {
-    const { ghlService } = config.configurable;
+    // Initialize GHL service if not provided in config
+    let ghlService = config?.configurable?.ghlService;
+    
+    if (!ghlService) {
+      // Dynamic import to avoid module resolution issues
+      const { GHLService } = await import('../services/ghlService.js');
+      ghlService = new GHLService(
+        process.env.GHL_API_KEY,
+        process.env.GHL_LOCATION_ID
+      );
+    }
     
     try {
       // Send via GHL's WhatsApp messaging API

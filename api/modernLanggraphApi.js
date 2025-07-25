@@ -24,7 +24,21 @@ export async function handleWebhook(req) {
   await initialize();
   
   try {
-    const { phone, message, contactId, conversationId } = req.body;
+    // Handle both LangGraph format and GHL format
+    let phone, message, contactId, conversationId;
+    
+    if (req.body.phone) {
+      // GHL format
+      ({ phone, message, contactId, conversationId } = req.body);
+    } else if (req.body.input?.messages) {
+      // LangGraph format - extract from input
+      message = req.body.input.messages[0]?.content;
+      contactId = req.body.config?.configurable?.contactId || req.body.thread_id;
+      phone = req.body.config?.configurable?.phone;
+      conversationId = req.body.config?.configurable?.conversationId;
+    } else {
+      throw new Error('Invalid webhook format');
+    }
     
     // Validate required fields
     if (!phone || !message || !contactId) {
