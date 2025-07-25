@@ -2,11 +2,7 @@
   "name": "outlet-media-bot",
   "version": "2.0.0",
   "description": "Spanish AI Sales Bot with Public Webhooks",
-  "main": "api/index.js",
-  "langgraph": {
-    "config": "./langgraph.config.js",
-    "version": "2.0.0"
-  },
+  "main": "agents/salesAgent.js",
   "scripts": {
     "test": "node test-components.js",
     "test:components": "node test-components.js"
@@ -21,13 +17,7 @@
     "@langchain/openai": "^0.6.3",
     "axios": "^1.11.0",
     "dotenv": "^17.2.1",
-    "express": "^5.1.0",
     "langsmith": "^0.3.48",
-    "nodemon": "^3.1.10",
-    "helmet": "^7.1.0",
-    "cors": "^2.8.5",
-    "express-rate-limit": "^7.2.0",
-    "winston": "^3.11.0",
     "zod": "^3.23.8"
   }
 }
