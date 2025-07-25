@@ -480,9 +480,22 @@ const baseAgent = createReactAgent({
  * This ensures the agent knows which contactId to use when calling tools
  */
 export async function salesAgent(input, config) {
-  const { messages, contactId, ...rest } = input;
+  // Handle both direct input and LangGraph Platform format
+  let messages, contactId, conversationId, phone, rest = {};
+  
+  if (input.messages) {
+    // Direct format
+    ({ messages, contactId, conversationId, phone, ...rest } = input);
+  } else if (input.input?.messages) {
+    // LangGraph Platform format
+    messages = input.input.messages;
+    contactId = input.input.contactId || input.config?.configurable?.contactId;
+    conversationId = input.input.conversationId || input.config?.configurable?.conversationId;
+    phone = input.input.phone || input.config?.configurable?.phone;
+  }
   
   if (!contactId) {
+    console.error('Input received:', JSON.stringify(input, null, 2));
     throw new Error('contactId is required for the sales agent');
   }
   
@@ -498,8 +511,11 @@ export async function salesAgent(input, config) {
   
   // Call the original agent with the modified messages
   return baseAgent.invoke({
-    ...input,
-    messages: messagesWithContext
+    messages: messagesWithContext,
+    contactId,
+    conversationId,
+    phone,
+    ...rest
   }, config);
 }
 
