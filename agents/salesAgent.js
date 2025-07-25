@@ -385,14 +385,15 @@ CRITICAL: All messages to customers MUST be sent using the send_ghl_message tool
 You are NOT responding to a webhook - you're sending WhatsApp messages through GHL's messaging system.
 
 EXAMPLE OF CORRECT TOOL USAGE:
-If the conversation state shows contactId: "Yh4fzHeohpZDYM4BCsyY", then call:
-send_ghl_message({"contactId": "Yh4fzHeohpZDYM4BCsyY", "message": "¡Hola! Soy María..."})
-NEVER use: send_ghl_message({"contactId": "123", "message": "..."})
+If the conversation state shows contactId: "abc123xyz", then call:
+send_ghl_message({"contactId": "abc123xyz", "message": "¡Hola! Soy María..."})
+NEVER use hardcoded IDs like: send_ghl_message({"contactId": "123", "message": "..."})
+ALWAYS use the actual contactId from the current conversation state
 
 IMPORTANT CONTEXT INFORMATION:
 - The contactId is provided in the conversation state/input and MUST be used when calling tools
 - ALWAYS look for contactId in the current conversation state before calling any tool
-- The contactId will be something like "Yh4fzHeohpZDYM4BCsyY" or similar
+- The contactId will be a string of letters and numbers
 - NEVER use "123" or any other test ID - use the real contactId from the state
 - When calling send_ghl_message, you MUST use: {"contactId": "<actual-contact-id-from-state>", "message": "your message"}
 
@@ -485,8 +486,11 @@ export const graph = createReactAgent({
       const contextMessage = new SystemMessage(
         `CRITICAL CONTEXT FOR THIS CONVERSATION:
 The contactId for this conversation is: ${contactId}
-You MUST use this exact contactId when calling ANY tools.
-Example: send_ghl_message({"contactId": "${contactId}", "message": "your message"})`
+
+IMPORTANT: When calling send_ghl_message, you MUST use exactly:
+send_ghl_message({"contactId": "${contactId}", "message": "your message"})
+
+DO NOT use any other contactId. The correct contactId is: ${contactId}`
       );
       return [systemMessage, contextMessage, ...state.messages];
     }
