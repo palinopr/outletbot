@@ -116,7 +116,7 @@ This document summarizes all changes made to fix production deployment issues wi
 
 ## Summary of All Changes
 
-### New Files Created (21 files):
+### New Files Created (23 files):
 1. `.env.test` - Environment template
 2. `ERROR_FIXES_SUMMARY.md` - Error fix documentation
 3. `services/langsmithConfig.js` - LangSmith configuration
@@ -138,6 +138,8 @@ This document summarizes all changes made to fix production deployment issues wi
 19. `api/health.js` - Health check endpoint
 20. `test-minimal-no-ghl.js` - Minimal testing
 21. `PROGRESS_SUMMARY.md` - This file
+22. `agents/webhookDebugDetailed.js` - Step-by-step debug handler
+23. `DEPLOYMENT_TRIGGER.md` - Deployment trigger file
 
 ### Modified Files (5 files):
 1. `agents/webhookHandler.js`
@@ -173,14 +175,42 @@ This document summarizes all changes made to fix production deployment issues wi
 5. GHL API confirmed working
 
 ### 🔄 In Progress:
-1. Production webhook still failing
-2. Debug webhooks deployed to diagnose
-3. Waiting for redeployment with debug tools
+1. Production webhook still failing despite all fixes
+2. Debug webhooks deployed and tested
+3. Detailed debug handler added to pinpoint failure
+
+### ✅ Debug Results:
+From testing debug webhooks:
+- `debug_webhook`: Shows all env vars present, imports successful
+- `simple_webhook`: Works perfectly - proves basic functionality
+- `webhook_handler`: Still returns error message
+- `webhook_debug_detailed`: Will show exact failure point (pending deployment)
 
 ### Next Steps:
-1. Deploy debug webhooks (commit 2b7be74)
-2. Run debug_webhook to see exact error
-3. Fix based on debug output
+1. Test webhook_debug_detailed once deployed (commit c0f628c)
+2. Identify exact line where webhook fails
+3. Fix based on specific error location
+
+---
+
+## Debugging Discoveries
+
+### What We've Confirmed Works ✅
+1. **Environment Variables**: All properly set in production
+2. **Module Imports**: GHL service and conversation manager import successfully
+3. **Basic Functionality**: Simple webhooks work without issues
+4. **Deployment Pipeline**: Code deploys and runs correctly
+5. **LangGraph Platform**: Graphs register and execute properly
+
+### What's Still Failing ❌
+1. **Main webhook_handler**: Returns error message immediately
+2. **Unknown Error**: Caught in try/catch but not logged
+3. **Early Failure**: Happens before any service initialization
+
+### Debugging Strategy
+1. Created `debug_webhook` → Confirmed env vars and imports ✅
+2. Created `simple_webhook` → Confirmed basic execution works ✅
+3. Created `webhook_debug_detailed` → Will show exact failure line ⏳
 
 ---
 
@@ -191,5 +221,7 @@ This document summarizes all changes made to fix production deployment issues wi
 3. **Validate Everything**: Don't assume environment variables are set
 4. **Test in Isolation**: Simple webhooks help identify dependency issues
 5. **Proper Error Handling**: Return actual errors during debugging
+6. **Step-by-Step Debugging**: When logs don't show errors, add detailed step logging
+7. **Progressive Enhancement**: Start with simple working version, add complexity
 
-The main issue appears to be an early initialization failure in the production environment, likely due to module imports or environment configuration. The debug webhooks will reveal the exact cause.
+The webhook_debug_detailed handler will finally reveal the exact line causing the production failure.
