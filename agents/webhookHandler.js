@@ -18,6 +18,39 @@ let conversationManager;
 const processedMessages = new Map();
 const MESSAGE_CACHE_TTL = config.features.enableDeduplication ? 10 * 60 * 1000 : 0; // 10 minutes if enabled
 
+// Circuit breaker for production stability
+const circuitBreaker = {
+  failures: 0,
+  lastFailure: 0,
+  threshold: 3,
+  timeout: 60000,  // 1 minute cooldown
+  
+  isOpen() {
+    if (this.failures >= this.threshold) {
+      const timeSinceLastFailure = Date.now() - this.lastFailure;
+      if (timeSinceLastFailure < this.timeout) {
+        return true;  // Circuit is open, reject requests
+      }
+      // Reset after cooldown
+      this.failures = 0;
+    }
+    return false;
+  },
+  
+  recordSuccess() {
+    this.failures = 0;
+  },
+  
+  recordFailure() {
+    this.failures++;
+    this.lastFailure = Date.now();
+    logger.warn('Circuit breaker failure recorded', {
+      failures: this.failures,
+      threshold: this.threshold
+    });
+  }
+};
+
 // Clean up old entries periodically
 setInterval(() => {
   const now = Date.now();
@@ -99,6 +132,26 @@ async function webhookHandlerNode(state, config) {
     hasPhone: !!state.phone,
     timestamp: new Date().toISOString()
   });
+  
+  // Check circuit breaker first
+  if (circuitBreaker.isOpen()) {
+    logger.error('🚫 CIRCUIT BREAKER OPEN - rejecting request', {
+      traceId,
+      failures: circuitBreaker.failures,
+      lastFailure: new Date(circuitBreaker.lastFailure).toISOString()
+    });
+    return {
+      messages: [
+        ...state.messages,
+        new AIMessage({
+          content: 'Sistema temporalmente no disponible. Por favor intenta en unos minutos.',
+          name: 'María'
+        })
+      ],
+      contactId: state.contactId,
+      phone: state.phone
+    };
+  }
   
   try {
     // Initialize services with retry
@@ -227,7 +280,7 @@ async function webhookHandlerNode(state, config) {
   );
   
   const conversationTimeoutPromise = new Promise((_, reject) => {
-    setTimeout(() => reject(new Error('Conversation fetch timeout')), config.apiTimeout || 10000);
+    setTimeout(() => reject(new Error('Conversation fetch timeout')), 5000); // 5 seconds max for production
   });
   
   let conversationState;
@@ -348,6 +401,9 @@ async function webhookHandlerNode(state, config) {
     appointmentBooked: result.appointmentBooked || false
   });
   
+  // Record success for circuit breaker
+  circuitBreaker.recordSuccess();
+  
   // Return updated state with messages following MessagesAnnotation pattern
   return {
     messages: result.messages,
@@ -369,6 +425,9 @@ async function webhookHandlerNode(state, config) {
       lastMessage: state.messages?.[state.messages.length - 1]?.content?.substring(0, 100),
       processingTimeBeforeError: Date.now() - startTime
     });
+    
+    // Record failure for circuit breaker
+    circuitBreaker.recordFailure();
     
     // Log to LangSmith trace if available
     if (config.callbacks) {

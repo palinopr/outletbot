@@ -783,8 +783,8 @@ After booking: appointmentBooked=true - only answer questions`;
 const llm = new ChatOpenAI({ 
   model: "gpt-4",
   temperature: 0.7,
-  timeout: 30000, // 30 second timeout for LLM calls
-  maxRetries: 3
+  timeout: 10000, // 10 second timeout for production
+  maxRetries: 2    // Reduce retries to fail fast
 });
 
 // Define tools array
