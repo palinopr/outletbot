@@ -3,10 +3,25 @@ import { GHLService, formatPhoneNumber } from '../services/ghlService.js';
 import ConversationManager from '../services/conversationManager.js';
 import { HumanMessage } from '@langchain/core/messages';
 import { StateGraph, MessagesAnnotation, Annotation, END } from '@langchain/langgraph';
+import crypto from 'crypto';
 
 // Initialize services with lazy loading
 let ghlService;
 let conversationManager;
+
+// Message deduplication cache (10 minute TTL)
+const processedMessages = new Map();
+const MESSAGE_CACHE_TTL = 10 * 60 * 1000; // 10 minutes
+
+// Clean up old entries periodically
+setInterval(() => {
+  const now = Date.now();
+  for (const [hash, timestamp] of processedMessages.entries()) {
+    if (now - timestamp > MESSAGE_CACHE_TTL) {
+      processedMessages.delete(hash);
+    }
+  }
+}, MESSAGE_CACHE_TTL / 2);
 
 // Health check for services
 async function healthCheck() {
@@ -78,11 +93,37 @@ async function webhookHandlerNode(state, config) {
     throw new Error('Missing required fields: phone, message, or contactId');
   }
   
+  // Create message hash for deduplication
+  const messageHash = crypto.createHash('md5')
+    .update(`${contactId}-${message}-${phone}`)
+    .digest('hex');
+  
+  // Check if we've already processed this exact message recently
+  if (processedMessages.has(messageHash)) {
+    const processedTime = processedMessages.get(messageHash);
+    const timeSince = Date.now() - processedTime;
+    console.log(`Duplicate message detected (processed ${timeSince}ms ago), skipping:`, {
+      contactId,
+      messagePreview: message.substring(0, 30) + '...',
+      hash: messageHash
+    });
+    
+    // Return empty state to indicate no processing needed
+    return {
+      messages: state.messages,
+      duplicate: true
+    };
+  }
+  
+  // Mark message as processed
+  processedMessages.set(messageHash, Date.now());
+  
   console.log('Webhook received:', { 
     contactId, 
     phone,
     message: message.substring(0, 50) + '...',
-    timestamp: new Date().toISOString()
+    timestamp: new Date().toISOString(),
+    hash: messageHash
   });
   
   // Always fetch conversation by contactId and phone (no conversationId from webhook)

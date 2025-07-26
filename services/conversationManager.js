@@ -104,10 +104,24 @@ export class ConversationManager {
     );
     
     for (const msg of sortedMessages) {
+      // Filter out system messages and tool responses
+      const messageBody = msg.body || msg.message || '';
+      
+      // Skip messages that are clearly tool responses or system messages
+      if (messageBody.includes('{"success":') || 
+          messageBody.includes('{"error":') ||
+          messageBody.includes('"timestamp":') ||
+          messageBody.includes('"sent":') ||
+          messageBody.includes('"updated":') ||
+          messageBody.startsWith('{') && messageBody.endsWith('}')) {
+        console.log('Skipping tool response/system message:', messageBody.substring(0, 50) + '...');
+        continue;
+      }
+      
       if (msg.direction === 'inbound') {
-        messages.push(new HumanMessage(msg.body || msg.message));
+        messages.push(new HumanMessage(messageBody));
       } else if (msg.direction === 'outbound') {
-        messages.push(new AIMessage(msg.body || msg.message));
+        messages.push(new AIMessage(messageBody));
       }
     }
     
