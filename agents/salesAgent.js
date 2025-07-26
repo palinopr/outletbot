@@ -3,6 +3,7 @@ import { tool } from "@langchain/core/tools";
 import { z } from "zod";
 import { ChatOpenAI } from "@langchain/openai";
 import { SystemMessage } from "@langchain/core/messages";
+import { getCurrentTaskInput, Annotation, MessagesAnnotation } from '@langchain/langgraph';
 
 // Agent configuration with timeout and retry handling
 const AGENT_CONFIG = {
@@ -15,15 +16,42 @@ const AGENT_CONFIG = {
   }
 };
 
+// Import getCurrentTaskInput for accessing state in tools
+import { getCurrentTaskInput } from '@langchain/langgraph';
+
 // Tool: Extract lead information from messages
 const extractLeadInfo = tool(
-  async ({ message, currentInfo }) => {
+  async ({ message }, config) => {
     const llm = new ChatOpenAI({ model: "gpt-4", temperature: 0 });
+    
+    // Access the current state to get existing leadInfo
+    let currentState;
+    try {
+      currentState = getCurrentTaskInput();
+    } catch (e) {
+      // If getCurrentTaskInput fails, we're not in a graph context
+      currentState = null;
+    }
+    
+    const existingLeadInfo = currentState?.leadInfo || config?.configurable?.currentLeadInfo || {};
+    
+    // Build currentInfo from state, not from tool input
+    const currentInfo = {
+      name: existingLeadInfo.name || "",
+      businessType: existingLeadInfo.businessType || "",
+      problem: existingLeadInfo.problem || "",
+      goal: existingLeadInfo.goal || "",
+      budget: existingLeadInfo.budget || 0,
+      email: existingLeadInfo.email || "",
+      businessDetails: existingLeadInfo.businessDetails || ""
+    };
+    
+    console.log('Extract lead info - Current context:', currentInfo);
     
     const prompt = `Analyze this customer message and extract any information provided:
     Message: "${message}"
     
-    Current info we have: ${JSON.stringify(currentInfo)}
+    Current info we already have: ${JSON.stringify(currentInfo)}
     
     Extract any NEW information (if mentioned):
     - Name
@@ -36,33 +64,40 @@ const extractLeadInfo = tool(
     
     For budget, if you see a number followed by any monthly indicator, extract just the number.
     
-    Return ONLY a JSON object with any new/updated fields: {"name": null, "businessType": null, "problem": null, "goal": null, "budget": null, "email": null, "businessDetails": null}`;
+    Return ONLY a JSON object with any new/updated fields. Do NOT include fields that haven't changed.
+    Example: If current name is "Jaime" and message doesn't mention a different name, don't include "name" in response.`;
     
     const response = await llm.invoke([
-      new SystemMessage("You extract information from messages. Return only valid JSON."),
+      new SystemMessage("You extract information from messages. Return only valid JSON with ONLY new/changed fields."),
       { role: "user", content: prompt }
     ]);
     
     try {
-      return JSON.parse(response.content);
+      const extracted = JSON.parse(response.content);
+      
+      // Merge with existing info
+      const merged = { ...currentInfo };
+      Object.keys(extracted).forEach(key => {
+        if (extracted[key] !== null && extracted[key] !== undefined && extracted[key] !== "") {
+          merged[key] = extracted[key];
+        }
+      });
+      
+      console.log('Extracted new info:', extracted);
+      console.log('Merged lead info:', merged);
+      
+      return merged;
     } catch (e) {
-      return {};
+      console.error('Failed to parse extraction response:', e);
+      return currentInfo; // Return existing info if extraction fails
     }
   },
   {
     name: "extract_lead_info",
-    description: "Extract lead information from customer message",
+    description: "Extract lead information from customer message using current state context",
     schema: z.object({
-      message: z.string().describe("Customer's message"),
-      currentInfo: z.object({
-        name: z.string().optional(),
-        businessType: z.string().optional(),
-        problem: z.string().optional(),
-        goal: z.string().optional(),
-        budget: z.number().optional(),
-        email: z.string().optional(),
-        businessDetails: z.string().optional()
-      }).describe("Currently known information")
+      message: z.string().describe("Customer's message")
+      // Removed currentInfo parameter - we get it from state now
     })
   }
 );
@@ -428,16 +463,28 @@ const sendGHLMessage = tool(
 const SALES_AGENT_PROMPT = `You are María, an AI-powered sales consultant for Outlet Media - and you're PROUD of being AI! 
 You help businesses automate their customer interactions just like you're doing right now.
 
-CRITICAL CONTEXT AWARENESS: 
-- ALWAYS check leadInfo FIRST before deciding what to ask
-- If leadInfo.name exists → Don't ask for name, move to next question
-- If leadInfo.problem exists → Don't ask about problem, ask about goals
-- If leadInfo.goal exists → Don't ask about goals, ask about budget
-- Remember what the customer has already told you (name, business type, problem, goal, budget, email)
-- Never ask for information that was already provided
-- Reference previous parts of the conversation to show you remember
-- When customer provides new info, acknowledge what you already know
-  Example: "Hola Jaime! Veo que tienes un restaurante y estás perdiendo clientes..."
+🚨 CONTEXT AWARENESS IS CRITICAL 🚨
+🌟 STATE MANAGEMENT: The conversation state contains leadInfo with everything we know about this customer.
+🌟 TOOL BEHAVIOR: The extract_lead_info tool automatically accesses and merges with existing state.
+🌟 YOUR RESPONSIBILITY: NEVER ask for information that's already in leadInfo.
+
+CONTEXT RULES:
+1. ALWAYS check the leadInfo provided in this prompt BEFORE asking any question
+2. If leadInfo.name exists → Greet by name, ask about problem
+3. If leadInfo.problem exists → Reference their problem, ask about goals
+4. If leadInfo.goal exists → Reference their goal, ask about budget
+5. If leadInfo.budget exists → Reference budget, ask for email (if >= $300)
+6. If leadInfo.email exists → Show calendar slots
+
+EXAMPLES OF CONTEXT-AWARE RESPONSES:
+- If name="Jaime": "Hola Jaime! ¿En qué tipo de negocio estás?"
+- If problem="necesito clientes": "Entiendo que necesitas más clientes. ¿Cuál es tu meta específica?"
+- If goal="aumentar 50%": "Excelente meta de aumentar 50%. ¿Cuál es tu presupuesto mensual?"
+
+NEVER SAY:
+- "¿Cuál es tu nombre?" (if leadInfo.name exists)
+- "¿Cuál es tu problema?" (if leadInfo.problem exists)
+- "¿Cuál es tu meta?" (if leadInfo.goal exists)
 
 🚨 CRITICAL TOOL USAGE RULES 🚨
 You NEVER respond directly in the message content. Your ONLY way to communicate with the customer is through tools.
@@ -508,32 +555,37 @@ CONVERSATION RULES:
 5. If they test you or ask if you're real: "¡Soy 100% AI y orgullosa de serlo! 🤖 Justo como las soluciones que implementamos para tu negocio"
 
 IMPORTANT TOOL USAGE ON EVERY MESSAGE:
-1. FIRST: Check existing leadInfo to see what we already know
-2. SECOND: Use extract_lead_info tool to analyze NEW information in customer message
-3. THIRD: Merge existing leadInfo with new extracted info
-4. FOURTH: Use send_ghl_message to respond based on what info is still missing
-5. FIFTH: Use update_ghl_contact to:
+1. FIRST: Check existing leadInfo in the state (provided in system prompt)
+2. SECOND: Use extract_lead_info tool to analyze the customer message
+   - The tool will automatically access current state and merge with new info
+   - You only need to pass the message, NOT currentInfo
+3. THIRD: Use send_ghl_message to respond based on what info is still missing
+4. FOURTH: Use update_ghl_contact to:
    - Add tags if new information discovered
-   - Update custom fields with any new data
+   - Update custom fields with the merged leadInfo from extract_lead_info
    - Add a note summarizing this interaction
 
-ALWAYS check for:
-- Budget mentions (numbers with "mes", "mensual", "al mes", etc.)
-- Email addresses
-- Business details
-- Any other relevant information
+CRITICAL: When calling extract_lead_info, pass ONLY the message:
+✅ CORRECT: extract_lead_info({ message: "customer text" })
+❌ WRONG: extract_lead_info({ message: "text", currentInfo: {...} })
 
-STRICT QUALIFICATION FLOW:
-1. If no name → Ask for name
-2. If have name but no problem → Ask about problem/need
-3. If have name + problem but no goal → Ask about goals
-4. If have name + problem + goal but no budget → Ask about budget
-5. If have all 4 pieces → Continue to email and scheduling
+TOOL USAGE PATTERN:
+1. Customer message arrives
+2. Call extract_lead_info({ message: "customer text" }) - it returns merged leadInfo
+3. Based on the MERGED leadInfo from tool, determine what's missing
+4. Send response asking for the NEXT missing piece ONLY
+5. Update GHL with the merged leadInfo
 
-IMPORTANT: ALWAYS check what information you already have BEFORE asking questions.
-NEVER ask for information that's already in leadInfo.
-You MUST collect ALL four pieces of information (nombre, problema, meta, presupuesto) 
-BEFORE proceeding to scheduling. No exceptions.
+STRICT QUALIFICATION FLOW BASED ON MERGED LEADINFO:
+1. If merged leadInfo missing name → Ask for name
+2. If merged leadInfo has name but no problem → Ask about problem/need  
+3. If merged leadInfo has name + problem but no goal → Ask about goals
+4. If merged leadInfo has name + problem + goal but no budget → Ask about budget
+5. If merged leadInfo has all 4 pieces + budget >= $300 → Ask for email
+6. If merged leadInfo has everything → Show calendar
+
+⚠️ CRITICAL: Base your decisions on the MERGED leadInfo returned by extract_lead_info tool,
+NOT just on what's in the current message. The tool handles all state merging for you.
 
 Budget Handling:
 - If budget >= $300: Continue to email collection and scheduling
@@ -546,17 +598,29 @@ Calendar Scheduling:
 - Call book_appointment to confirm
 
 UPDATE GHL at each stage:
-- After EVERY customer message: Add a note with timestamp and what was discussed
-- After qualification: Add tags like "qualified-lead", "budget-300-plus", "under-budget"
-- After booking: Add "appointment-scheduled" tag
-- Always use update_ghl_contact tool to add notes about each interaction
+- After EVERY customer message: 
+  1. Get merged leadInfo from extract_lead_info tool
+  2. Pass the ENTIRE merged leadInfo to update_ghl_contact
+  3. Add appropriate tags based on what's in merged leadInfo
+  4. Add a note with current conversation state
+
+EXAMPLE update_ghl_contact CALL:
+{
+  tags: ["name-collected", "problem-identified"],
+  leadInfo: {
+    name: "Jaime",
+    problem: "necesito más clientes",
+    businessType: "restaurante",
+    // ... rest of merged data from extract_lead_info
+  },
+  notes: "[timestamp] Collected name (Jaime) and problem (needs more customers)"
+}
 
 NOTE FORMAT for each interaction:
-[Date/Time] - Conversation Update
-- Customer said: [summary of their message]
-- Information extracted: [any new data collected]
-- Bot response: [what we discussed]
-- Next step: [what we're asking/doing next]
+[Date/Time] - State after extraction
+- Current leadInfo: [what we know so far]
+- Customer provided: [what was new in this message]
+- Next step: [what we're asking for next]
 
 `;
 
@@ -580,12 +644,24 @@ const tools = [
   parseTimeSelection
 ];
 
+// Define custom state annotation that includes leadInfo
+const AgentStateAnnotation = Annotation.Root({
+  ...MessagesAnnotation.spec,
+  leadInfo: Annotation({
+    reducer: (x, y) => ({ ...x, ...y }), // Merge leadInfo updates
+    default: () => ({})
+  }),
+  contactId: Annotation(),
+  conversationId: Annotation()
+});
+
 // Bind tools to the model to ensure it knows they're available
 const modelWithTools = llm.bindTools(tools);
 
 export const graph = createReactAgent({
   llm: modelWithTools,
   tools: tools,
+  stateSchema: AgentStateAnnotation, // Use custom state schema
   stateModifier: (state) => {
     // Add current lead info to the prompt if available
     let enhancedPrompt = SALES_AGENT_PROMPT;
@@ -602,6 +678,8 @@ export const graph = createReactAgent({
       
       if (knownInfo.length > 0) {
         enhancedPrompt += `\n\n🔴 INFORMACIÓN CONOCIDA DEL CLIENTE:\n${knownInfo.join('\n')}\n\n🚨 USA ESTA INFORMACIÓN - NO LA PREGUNTES DE NUEVO.\n\n`;
+        enhancedPrompt += `⚠️ CONTEXT AWARENESS: The extract_lead_info tool will automatically access this information from state.\n`;
+        enhancedPrompt += `You don't need to pass currentInfo - just the message.\n\n`;
         
         // Determine current stage based on what we have
         if (!info.name) {
@@ -633,6 +711,7 @@ export const graph = createReactAgent({
 export async function salesAgent(input, config) {
   // console.log('Agent invoked with input:', JSON.stringify(input, null, 2));
   console.log(`Agent received ${input.messages?.length || 0} messages in conversation history`);
+  console.log('Current leadInfo state:', input.leadInfo || 'No leadInfo');
   
   const startTime = Date.now();
   
@@ -643,7 +722,8 @@ export async function salesAgent(input, config) {
       ...config?.configurable,
       contactId: input.contactId || config?.configurable?.contactId,
       conversationStartTime: startTime,
-      agentConfig: AGENT_CONFIG
+      agentConfig: AGENT_CONFIG,
+      currentLeadInfo: input.leadInfo || {} // Pass leadInfo through config for tools
     }
   };
   

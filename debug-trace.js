@@ -13,113 +13,83 @@ async function debugTrace(traceId) {
   console.log(`🔍 Fetching trace: ${traceId}\n`);
   
   const runs = [];
-  try {
-    for await (const run of client.listRuns({traceId: traceId})) {
-      runs.push(run);
-    }
+  for await (const run of client.listRuns({traceId: traceId})) {
+    runs.push(run);
+  }
+  
+  console.log(`Found ${runs.length} runs in trace\n`);
+  
+  // Sort runs by start time to see the flow
+  runs.sort((a, b) => new Date(a.start_time) - new Date(b.start_time));
+  
+  // Find the main agent run
+  const agentRun = runs.find(run => run.name === 'sales_agent' || run.run_type === 'chain');
+  
+  if (agentRun) {
+    console.log('🤖 AGENT RUN ANALYSIS:');
+    console.log(`Status: ${agentRun.status}`);
+    console.log(`Error: ${agentRun.error || 'None'}`);
     
-    console.log(`📊 Total runs found: ${runs.length}\n`);
+    // Check inputs
+    console.log('\n📥 INPUTS:');
+    console.log(JSON.stringify(agentRun.inputs, null, 2));
     
-    // Sort runs by start time
-    runs.sort((a, b) => new Date(a.start_time) - new Date(b.start_time));
+    // Check outputs
+    console.log('\n📤 OUTPUTS:');
+    console.log(JSON.stringify(agentRun.outputs, null, 2));
     
-    // Analyze each run
-    runs.forEach((run, index) => {
-      console.log(`\n${'='.repeat(80)}`);
-      console.log(`🏃 Run ${index + 1}/${runs.length}: ${run.name}`);
-      console.log(`${'='.repeat(80)}`);
-      console.log(`ID: ${run.id}`);
-      console.log(`Status: ${run.status}`);
-      console.log(`Start: ${new Date(run.start_time).toISOString()}`);
-      
-      if (run.error) {
-        console.log(`\n❌ ERROR: ${run.error}`);
-      }
-      
-      // Show inputs
-      if (run.inputs) {
-        console.log(`\n📥 INPUTS:`);
-        console.log(JSON.stringify(run.inputs, null, 2));
-      }
-      
-      // Analyze tool calls and responses
-      if (run.outputs?.messages) {
-        console.log(`\n📤 OUTPUTS (${run.outputs.messages.length} messages):`);
-        
-        run.outputs.messages.forEach((msg, msgIndex) => {
-          console.log(`\n  Message ${msgIndex + 1}:`);
-          
-          // Tool calls
-          if (msg.kwargs?.tool_calls) {
-            msg.kwargs.tool_calls.forEach((toolCall, tcIndex) => {
-              console.log(`\n  📞 TOOL CALL ${tcIndex + 1}: ${toolCall.name}`);
-              console.log(`    ID: ${toolCall.id}`);
-              console.log(`    Arguments:`);
-              console.log(JSON.stringify(toolCall.args, null, 6).split('\n').map(line => '      ' + line).join('\n'));
-            });
-          }
-          
-          // Tool responses
-          if (msg.kwargs?.name) {
-            console.log(`\n  🔧 TOOL RESPONSE: ${msg.kwargs.name}`);
-            console.log(`    Content: ${msg.kwargs.content}`);
-          }
-          
-          // Regular messages
-          if (msg.kwargs?.content && !msg.kwargs?.name && !msg.kwargs?.tool_calls) {
-            console.log(`\n  💬 AI MESSAGE:`);
-            console.log(`    ${msg.kwargs.content}`);
-          }
-        });
-      }
-      
-      // Check for any nested runs
-      if (run.child_run_ids && run.child_run_ids.length > 0) {
-        console.log(`\n👶 Child runs: ${run.child_run_ids.length}`);
-      }
-    });
-    
-    // Summary analysis
-    console.log(`\n\n${'='.repeat(80)}`);
-    console.log(`📊 TRACE SUMMARY`);
-    console.log(`${'='.repeat(80)}`);
-    
-    // Count tool calls by type
-    const toolCallCounts = {};
-    runs.forEach(run => {
-      if (run.outputs?.messages) {
-        run.outputs.messages.forEach(msg => {
-          if (msg.kwargs?.tool_calls) {
-            msg.kwargs.tool_calls.forEach(tc => {
-              toolCallCounts[tc.name] = (toolCallCounts[tc.name] || 0) + 1;
-            });
-          }
-        });
-      }
-    });
-    
-    console.log(`\nTool Call Summary:`);
-    Object.entries(toolCallCounts).forEach(([tool, count]) => {
-      console.log(`  ${tool}: ${count} calls`);
-    });
-    
-    // Check for errors
-    const errorRuns = runs.filter(r => r.error || r.status === 'error');
-    if (errorRuns.length > 0) {
-      console.log(`\n❌ Errors found in ${errorRuns.length} runs`);
-      errorRuns.forEach(run => {
-        console.log(`  - ${run.name}: ${run.error}`);
+    // Look for tool calls in the outputs
+    if (agentRun.outputs?.messages) {
+      console.log('\n🔧 TOOL CALLS:');
+      agentRun.outputs.messages.forEach((msg, idx) => {
+        if (msg.kwargs?.tool_calls) {
+          console.log(`\nMessage ${idx}:`);
+          msg.kwargs.tool_calls.forEach(tool => {
+            console.log(`  Tool: ${tool.name}`);
+            console.log(`  Args: ${JSON.stringify(tool.args, null, 2)}`);
+          });
+        }
       });
     }
-    
-    return runs;
-  } catch (error) {
-    console.error('Error fetching trace:', error);
-    throw error;
   }
+  
+  // Look for tool execution runs
+  console.log('\n\n🛠️ TOOL EXECUTIONS:');
+  const toolRuns = runs.filter(run => run.run_type === 'tool');
+  
+  toolRuns.forEach(toolRun => {
+    console.log(`\nTool: ${toolRun.name}`);
+    console.log(`Status: ${toolRun.status}`);
+    console.log(`Inputs: ${JSON.stringify(toolRun.inputs, null, 2)}`);
+    console.log(`Outputs: ${JSON.stringify(toolRun.outputs, null, 2)}`);
+    if (toolRun.error) {
+      console.log(`Error: ${toolRun.error}`);
+    }
+  });
+  
+  // Check for context/state issues
+  console.log('\n\n🧠 CONTEXT ANALYSIS:');
+  
+  // Look for extractLeadInfo calls to see what's being captured
+  const extractCalls = toolRuns.filter(run => run.name === 'extractLeadInfo');
+  console.log(`\nFound ${extractCalls.length} extractLeadInfo calls:`);
+  
+  extractCalls.forEach((call, idx) => {
+    console.log(`\nCall ${idx + 1}:`);
+    console.log(`Input message: ${call.inputs?.message}`);
+    console.log(`Extracted info: ${JSON.stringify(call.outputs, null, 2)}`);
+  });
+  
+  // Look for sendGHLMessage calls to see what's being sent
+  const sendCalls = toolRuns.filter(run => run.name === 'sendGHLMessage');
+  console.log(`\n\nFound ${sendCalls.length} sendGHLMessage calls:`);
+  
+  sendCalls.forEach((call, idx) => {
+    console.log(`\nMessage ${idx + 1}:`);
+    console.log(`Content: ${call.inputs?.message}`);
+    console.log(`LeadInfo at time: ${JSON.stringify(call.inputs?.leadInfo, null, 2)}`);
+  });
 }
 
-// Execute the debug
-debugTrace('1f069b4c-7f1e-667e-a6ad-062fd0c90146')
-  .then(() => console.log('\n✅ Debug complete'))
-  .catch(console.error);
+// Run the debug
+debugTrace('1f069bcc-9e0b-6a75-9e96-1e1332243273');
