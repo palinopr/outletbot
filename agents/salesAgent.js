@@ -94,15 +94,37 @@ const AgentStateAnnotation = Annotation.Root({
 const extractLeadInfo = tool(
   async ({ message }, config) => {
     const startTime = Date.now();
+    const toolCallId = config.toolCall?.id || 'extract_lead_info';
+    
+    logger.info('🔍 EXTRACT LEAD INFO START', {
+      toolCallId,
+      messageLength: message.length,
+      messagePreview: message.substring(0, 50)
+    });
+    
     try {
       // Access current state via config
       const currentState = config?.getState ? await config.getState() : config?.configurable || {};
       const currentLeadInfo = currentState.leadInfo || {};
       const extractionCount = currentState.extractionCount || 0;
       
+      logger.debug('📊 Current extraction state', {
+        toolCallId,
+        extractionCount,
+        hasName: !!currentLeadInfo.name,
+        hasProblem: !!currentLeadInfo.problem,
+        hasGoal: !!currentLeadInfo.goal,
+        hasBudget: !!currentLeadInfo.budget,
+        hasEmail: !!currentLeadInfo.email
+      });
+      
       // Check extraction limit
       if (extractionCount >= MAX_EXTRACTION_ATTEMPTS) {
-        logger.warn('Max extraction attempts reached', { extractionCount });
+        logger.warn('⚠️ MAX EXTRACTION ATTEMPTS REACHED', { 
+          toolCallId,
+          extractionCount,
+          limit: MAX_EXTRACTION_ATTEMPTS
+        });
         return new Command({ update: {} });
       }
       
@@ -151,7 +173,10 @@ const extractLeadInfo = tool(
         // Only update if there are actual changes
         const hasChanges = Object.keys(extracted).length > 0;
         if (!hasChanges) {
-          logger.debug('No new information extracted');
+          logger.info('ℹ️ NO NEW INFORMATION EXTRACTED', {
+            toolCallId,
+            processingTime: Date.now() - startTime
+          });
           return new Command({ update: {} });
         }
         
@@ -163,9 +188,12 @@ const extractLeadInfo = tool(
           }
         });
         
-        logger.debug('Lead info extraction', {
-          extractedInfo: extracted,
-          mergedInfo: merged
+        logger.info('✅ LEAD INFO EXTRACTED', {
+          toolCallId,
+          extractedFields: Object.keys(extracted),
+          mergedFields: Object.keys(merged).filter(k => merged[k]),
+          newBudget: extracted.budget,
+          processingTime: Date.now() - startTime
         });
         
         // Return Command object with state updates
@@ -621,16 +649,32 @@ const parseTimeSelection = tool(
 // Tool: Send message via GHL WhatsApp (NOT webhook response)
 const sendGHLMessage = tool(
   async ({ message }, config) => {
+    const startTime = Date.now();
+    const toolCallId = config.toolCall?.id || 'send_ghl_message';
+    
+    logger.info('📤 SEND GHL MESSAGE START', {
+      toolCallId,
+      messageLength: message.length,
+      messagePreview: message.substring(0, 50)
+    });
+    
     // Access current state via config
     const currentState = config?.getState ? await config.getState() : config?.configurable || {};
     const contactId = currentState.contactId || config?.configurable?.contactId;
     
     if (!contactId) {
+      logger.error('❌ NO CONTACT ID', { toolCallId });
       throw new Error('contactId not found in state. Cannot send message.');
     }
     
     // Check if appointment is already booked from state
     const appointmentBooked = currentState.appointmentBooked || false;
+    
+    logger.debug('📊 Send message state', {
+      toolCallId,
+      contactId,
+      appointmentBooked
+    });
     
     // Initialize GHL service
     let ghlService = config?.configurable?.ghlService;
@@ -644,11 +688,14 @@ const sendGHLMessage = tool(
     }
     
     try {
+      const sendStartTime = Date.now();
       await ghlService.sendSMS(contactId, message);
       
-      logger.info('Message sent successfully', {
+      logger.info('✅ MESSAGE SENT SUCCESSFULLY', {
+        toolCallId,
         contactId,
-        messagePreview: message.substring(0, 50) + '...'
+        sendTime: Date.now() - sendStartTime,
+        totalTime: Date.now() - startTime
       });
       
       // Return Command object with message update
@@ -798,10 +845,15 @@ export const graph = salesAgent;
 
 // Enhanced sales agent wrapper with error recovery
 export async function salesAgentInvoke(input, agentConfig) {
-  logger.info('Agent invoked', {
+  const traceId = agentConfig?.runId || 'no-trace-id';
+  
+  logger.info('🤖 SALES AGENT INVOKED', {
+    traceId,
     messageCount: input.messages?.length || 0,
     hasLeadInfo: !!input.leadInfo,
-    leadInfo: input.leadInfo || 'No leadInfo'
+    leadInfoFields: input.leadInfo ? Object.keys(input.leadInfo).filter(k => input.leadInfo[k]) : [],
+    contactId: input.contactId,
+    conversationId: input.conversationId
   });
   
   const startTime = Date.now();
@@ -858,20 +910,25 @@ export async function salesAgentInvoke(input, agentConfig) {
       conversationTimeoutPromise
     ]);
     
-    logger.info('Conversation completed', {
+    logger.info('✅ AGENT CONVERSATION COMPLETED', {
+      traceId,
       duration: Date.now() - startTime,
       messageCount: result.messages?.length || 0,
       appointmentBooked: result.appointmentBooked,
-      leadInfo: result.leadInfo
+      leadInfoUpdated: result.leadInfo ? Object.keys(result.leadInfo).filter(k => result.leadInfo[k]) : [],
+      finalStep: result.currentStep
     });
     
     return result;
     
   } catch (error) {
-    logger.error('Agent error', {
+    logger.error('❌ AGENT ERROR', {
+      traceId,
       error: error.message,
       stack: error.stack,
-      duration: Date.now() - startTime
+      duration: Date.now() - startTime,
+      errorType: error.name,
+      contactId
     });
     
     // Handle specific error types

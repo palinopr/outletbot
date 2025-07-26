@@ -17,38 +17,70 @@ export class ConversationManager {
 
   // Get conversation state from GHL
   async getConversationState(contactId, conversationId, phone = null) {
+    const startTime = Date.now();
     let messages = [];
     let conversation = null;
+    
+    this.logger.info('🔍 GET CONVERSATION STATE START', {
+      contactId,
+      conversationId: conversationId || 'null',
+      phone: phone || 'null',
+      timestamp: new Date().toISOString()
+    });
     
     try {
       // Check cache first
       const cacheKey = `${contactId}-${conversationId}`;
       const cached = this.cache.get(cacheKey);
       if (cached && Date.now() - cached.timestamp < this.cacheTTL) {
+        this.logger.info('✅ CACHE HIT', {
+          cacheKey,
+          cacheAge: Date.now() - cached.timestamp,
+          messageCount: cached.state.messages?.length || 0
+        });
         return cached.state;
       }
+      
+      this.logger.debug('❌ CACHE MISS', {
+        cacheKey,
+        cacheSize: this.cache.size
+      });
 
       // Get conversation from GHL
-      this.logger.debug('Getting conversation', {
+      this.logger.info('🔄 FETCHING CONVERSATION FROM GHL', {
         contactId,
-        conversationId: conversationId || 'not provided'
+        conversationId: conversationId || 'not provided',
+        needsCreation: !conversationId || conversationId.startsWith('conv_')
       });
       
+      const convStartTime = Date.now();
       if (conversationId && !conversationId.startsWith('conv_')) {
         // Real conversation ID provided
         conversation = await this.ghlService.getConversation(conversationId);
+        this.logger.info('✅ CONVERSATION FETCHED', {
+          conversationId,
+          fetchTime: Date.now() - convStartTime
+        });
       } else {
         // Need to find or create conversation
         conversation = await this.ghlService.getOrCreateConversation(contactId, phone);
         conversationId = conversation.id;
-        this.logger.info('Created/retrieved conversation', { conversationId });
+        this.logger.info('✅ CONVERSATION CREATED/RETRIEVED', { 
+          conversationId,
+          isNew: !conversation.dateAdded || (Date.now() - new Date(conversation.dateAdded).getTime() < 1000),
+          fetchTime: Date.now() - convStartTime
+        });
       }
 
       // Get conversation messages from GHL
+      const msgStartTime = Date.now();
       const ghlMessages = await this.ghlService.getConversationMessages(conversationId);
-      this.logger.info('Fetched messages from GHL', {
+      this.logger.info('✅ MESSAGES FETCHED FROM GHL', {
         messageCount: ghlMessages.length,
-        conversationId
+        conversationId,
+        fetchTime: Date.now() - msgStartTime,
+        inbound: ghlMessages.filter(m => m.direction === 'inbound').length,
+        outbound: ghlMessages.filter(m => m.direction === 'outbound').length
       });
       
       // Apply windowing if needed
@@ -60,15 +92,26 @@ export class ConversationManager {
         const olderMessages = ghlMessages.slice(0, -this.maxMessagesInWindow);
         const recentMessages = ghlMessages.slice(-this.maxMessagesInWindow);
         
+        this.logger.info('📊 MESSAGE WINDOWING NEEDED', {
+          totalMessages: ghlMessages.length,
+          maxWindow: this.maxMessagesInWindow,
+          olderMessages: olderMessages.length,
+          recentMessages: recentMessages.length
+        });
+        
         try {
+          const sumStartTime = Date.now();
           summaryPrefix = await this.generateConversationSummary(olderMessages);
-          this.logger.info('Generated conversation summary', {
-            olderMessageCount: olderMessages.length
+          this.logger.info('✅ SUMMARY GENERATED', {
+            olderMessageCount: olderMessages.length,
+            summaryLength: summaryPrefix.length,
+            generationTime: Date.now() - sumStartTime
           });
           processedMessages = recentMessages;
         } catch (error) {
-          this.logger.error('Failed to generate summary, using all messages', {
-            error: error.message
+          this.logger.error('❌ SUMMARY GENERATION FAILED', {
+            error: error.message,
+            usingAllMessages: true
           });
           processedMessages = ghlMessages;
         }
@@ -90,7 +133,18 @@ export class ConversationManager {
       });
       
       // Extract lead information from messages and contact
+      const leadStartTime = Date.now();
       const leadInfo = await this.extractLeadInfo(messages, contactId);
+      this.logger.info('✅ LEAD INFO EXTRACTED', {
+        extractionTime: Date.now() - leadStartTime,
+        hasName: !!leadInfo.leadName,
+        hasProblem: !!leadInfo.leadProblem,
+        hasGoal: !!leadInfo.leadGoal,
+        hasBudget: !!leadInfo.leadBudget,
+        hasEmail: !!leadInfo.leadEmail,
+        currentStep: leadInfo.currentStep,
+        qualificationStatus: leadInfo.qualificationStatus
+      });
       
       // Build conversation state
       const state = {
@@ -108,13 +162,23 @@ export class ConversationManager {
         state,
         timestamp: Date.now()
       });
+      
+      this.logger.info('✅ CONVERSATION STATE COMPLETE', {
+        totalTime: Date.now() - startTime,
+        conversationId,
+        messageCount: messages.length,
+        cacheKey,
+        cached: true
+      });
 
       return state;
     } catch (error) {
-      this.logger.error('Error getting conversation state', {
+      this.logger.error('❌ ERROR GETTING CONVERSATION STATE', {
         error: error.message,
+        stack: error.stack,
         contactId,
-        conversationId
+        conversationId,
+        totalTime: Date.now() - startTime
       });
       // Return state with whatever we managed to fetch
       return {
@@ -204,6 +268,7 @@ export class ConversationManager {
 
     try {
       // Get contact details from GHL using contact ID
+      this.logger.debug('🔍 Fetching contact details', { contactId });
       const contact = await this.ghlService.getContact(contactId);
       if (contact) {
         info.leadName = contact.firstName || contact.name || contact.contactName;
@@ -220,9 +285,16 @@ export class ConversationManager {
             info.appointmentScheduled = true;
           }
         }
+        
+        this.logger.debug('✅ Contact details retrieved', {
+          hasName: !!info.leadName,
+          hasEmail: !!info.leadEmail,
+          tagCount: info.ghlTags.length,
+          qualificationStatus: info.qualificationStatus
+        });
       }
     } catch (error) {
-      this.logger.error('Error fetching contact details', {
+      this.logger.error('❌ Error fetching contact details', {
         contactId,
         error: error.message
       });

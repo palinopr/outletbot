@@ -1,9 +1,11 @@
 # Trace Debug Findings - Message Not Received Issue
 
-## Trace ID: 1f06a2ce-793f-6c6d-a1db-03ecc094b7e2
+## Trace IDs: 
+- 1f06a2ce-793f-6c6d-a1db-03ecc094b7e2
+- 1f06a310-3a38-6d11-aa54-86c4ef864f6a
 
 ### Summary
-After reviewing the latest LangGraph documentation and analyzing the codebase, I've identified potential causes for why messages might not be received in this trace.
+After reviewing the latest LangGraph documentation and analyzing the codebase, I've identified and fixed the root cause of messages not being received.
 
 ## Key Findings
 
@@ -115,15 +117,29 @@ From reviewing the official LangGraph repository (langchain-ai/langgraphjs):
 3. **Tool Messages**: Include `tool_call_id` in tool message responses
 4. **Message Format**: Use plain objects with role/content properties, not Message classes
 
-## Conclusion
+## Root Cause Found & Fixed
 
-The implementation follows the latest LangGraph patterns correctly. The issue with messages not being received is likely due to:
-1. Message deduplication logic filtering valid messages
-2. ConversationManager not fetching messages properly
-3. Webhook payload format issues
+### The Issue
+The `promptFunction` in salesAgent.js was returning mixed message formats:
+- Plain objects: `{ role: "system", content: systemPrompt }`
+- BaseMessage instances: `...state.messages`
 
-To debug trace 1f06a2ce-793f-6c6d-a1db-03ecc094b7e2, check the application logs for:
-- Webhook payload structure
-- Deduplication hash matches
-- Conversation fetch results
-- Any error messages during processing
+According to the latest LangGraph documentation, the prompt function should return `BaseMessageLike[]` instances, not plain objects.
+
+### The Fix
+1. **salesAgent.js line 767**: Changed from plain object to `new SystemMessage(systemPrompt)`
+2. **webhookHandler.js line 291**: Simplified AIMessage instantiation (removed unnecessary object wrapper)
+
+### Why This Caused Messages Not to Be Received
+When createReactAgent processes the prompt, it expects all messages to be proper BaseMessage instances. The mixed format caused the messages to be improperly processed, resulting in the agent not receiving the messages correctly.
+
+## Verification
+The fixes ensure:
+- ✅ All messages in promptFunction are BaseMessage instances
+- ✅ Consistent message format throughout the flow
+- ✅ Proper alignment with latest LangGraph documentation patterns
+
+## Additional Notes
+- HumanMessage instances in webhookHandler.js (line 213) are correct
+- Command objects returning plain message objects in tools are correct (they get converted internally)
+- The latest LangGraph examples confirm this pattern

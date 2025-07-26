@@ -90,6 +90,15 @@ async function initialize(retries = 3) {
  */
 async function webhookHandlerNode(state, config) {
   const startTime = Date.now();
+  const traceId = config?.runId || 'no-trace-id';
+  
+  logger.info('🔍 WEBHOOK HANDLER START', {
+    traceId,
+    stateMessagesCount: state.messages?.length || 0,
+    hasContactId: !!state.contactId,
+    hasPhone: !!state.phone,
+    timestamp: new Date().toISOString()
+  });
   
   try {
     // Initialize services with retry
@@ -97,6 +106,14 @@ async function webhookHandlerNode(state, config) {
     
     const { messages } = state;
     const lastMessage = messages[messages.length - 1];
+    
+    logger.debug('📨 Last message details', {
+      traceId,
+      messageType: lastMessage?.constructor?.name,
+      contentLength: lastMessage?.content?.length,
+      contentPreview: typeof lastMessage?.content === 'string' ? 
+        lastMessage.content.substring(0, 100) : 'non-string content'
+    });
   
   // Parse webhook payload from message content
   let webhookData;
@@ -129,8 +146,24 @@ async function webhookHandlerNode(state, config) {
   
   const { phone, message, contactId } = webhookData;
   
+  logger.info('📋 Webhook data extracted', {
+    traceId,
+    hasPhone: !!phone,
+    hasMessage: !!message,
+    hasContactId: !!contactId,
+    phoneLength: phone?.length,
+    messageLength: message?.length,
+    contactIdValue: contactId
+  });
+  
   // Validate required fields - only need phone, message, and contactId
   if (!phone || !message || !contactId) {
+    logger.error('❌ Missing required fields', {
+      traceId,
+      phone: !!phone,
+      message: !!message,
+      contactId: !!contactId
+    });
     throw new Error('Missing required fields: phone, message, or contactId');
   }
   
@@ -144,11 +177,13 @@ async function webhookHandlerNode(state, config) {
   if (enableDeduplication && processedMessages.has(messageHash)) {
     const processedTime = processedMessages.get(messageHash);
     const timeSince = Date.now() - processedTime;
-    logger.info('Duplicate message detected, skipping', {
+    logger.info('🔁 DUPLICATE MESSAGE DETECTED', {
+      traceId,
       contactId,
       messagePreview: message.substring(0, 30) + '...',
       hash: messageHash,
-      timeSinceProcessed: timeSince
+      timeSinceProcessed: timeSince,
+      processingSkipped: true
     });
     
     // Return empty state to indicate no processing needed
@@ -161,9 +196,15 @@ async function webhookHandlerNode(state, config) {
   // Mark message as processed
   if (enableDeduplication) {
     processedMessages.set(messageHash, Date.now());
+    logger.debug('📌 Message marked as processed', {
+      traceId,
+      hash: messageHash,
+      cacheSize: processedMessages.size
+    });
   }
   
-  logger.info('Webhook received', { 
+  logger.info('✅ WEBHOOK VALIDATION PASSED', { 
+    traceId,
     contactId, 
     phone,
     messagePreview: message.substring(0, 50) + '...',
@@ -172,6 +213,13 @@ async function webhookHandlerNode(state, config) {
   });
   
   // Always fetch conversation by contactId and phone (no conversationId from webhook)
+  logger.info('🔄 FETCHING CONVERSATION STATE', {
+    traceId,
+    contactId,
+    phone,
+    conversationIdProvided: false
+  });
+  
   const conversationStatePromise = conversationManager.getConversationState(
     contactId, 
     null, // Let the system find the conversation
@@ -179,7 +227,7 @@ async function webhookHandlerNode(state, config) {
   );
   
   const conversationTimeoutPromise = new Promise((_, reject) => {
-    setTimeout(() => reject(new Error('Conversation fetch timeout')), config.apiTimeout);
+    setTimeout(() => reject(new Error('Conversation fetch timeout')), config.apiTimeout || 10000);
   });
   
   let conversationState;
@@ -188,10 +236,21 @@ async function webhookHandlerNode(state, config) {
       conversationStatePromise,
       conversationTimeoutPromise
     ]);
+    
+    logger.info('✅ CONVERSATION STATE FETCHED', {
+      traceId,
+      conversationId: conversationState.conversationId,
+      messageCount: conversationState.messages?.length || 0,
+      hasLeadInfo: !!(conversationState.leadName || conversationState.leadEmail),
+      leadName: conversationState.leadName || 'not-set',
+      leadBudget: conversationState.leadBudget || 'not-set'
+    });
   } catch (error) {
-    logger.error('Failed to fetch conversation state', { 
+    logger.error('❌ CONVERSATION FETCH FAILED', { 
+      traceId,
       error: error.message,
-      contactId 
+      contactId,
+      usingFallback: true
     });
     // Use minimal state if fetch fails
     conversationState = {
@@ -213,10 +272,13 @@ async function webhookHandlerNode(state, config) {
     new HumanMessage(message)
   ];
   
-  logger.info('Passing messages to agent', {
+  logger.info('📦 PREPARING AGENT INVOCATION', {
+    traceId,
     totalMessages: agentMessages.length,
     historyMessages: conversationState.messages.length,
-    newMessages: 1
+    newMessages: 1,
+    lastHistoryMessage: conversationState.messages[conversationState.messages.length - 1]?.content?.substring(0, 50),
+    newMessage: message.substring(0, 50)
   });
   
   // Extract current lead info for context
@@ -229,7 +291,21 @@ async function webhookHandlerNode(state, config) {
     phone: formatPhoneNumber(phone)
   };
   
+  logger.debug('📋 Current lead info', {
+    traceId,
+    ...currentLeadInfo,
+    hasAllInfo: !!(currentLeadInfo.name && currentLeadInfo.problem && currentLeadInfo.goal && currentLeadInfo.budget && currentLeadInfo.email)
+  });
+  
   // Invoke the sales agent with proper configuration
+  logger.info('🤖 INVOKING SALES AGENT', {
+    traceId,
+    contactId,
+    conversationId: conversationState.conversationId,
+    messageCount: agentMessages.length
+  });
+  
+  const agentStartTime = Date.now();
   const result = await salesAgentInvoke({
     messages: agentMessages,
     // Pass current lead info as context
@@ -242,17 +318,34 @@ async function webhookHandlerNode(state, config) {
       ghlService,
       calendarId: process.env.GHL_CALENDAR_ID,
       contactId
-    }
+    },
+    runId: traceId  // Pass trace ID to agent
+  });
+  
+  logger.info('✅ AGENT RESPONSE RECEIVED', {
+    traceId,
+    agentProcessingTime: Date.now() - agentStartTime,
+    responseMessageCount: result.messages?.length || 0,
+    appointmentBooked: result.appointmentBooked || false,
+    leadInfoUpdated: Object.keys(result.leadInfo || {}).length > Object.keys(currentLeadInfo).filter(k => currentLeadInfo[k]).length
   });
   
   // Clear conversation cache (non-blocking)
   setImmediate(() => {
     conversationManager.clearCache(contactId, conversationState.conversationId);
+    logger.debug('🧹 Cache cleared', {
+      traceId,
+      contactId,
+      conversationId: conversationState.conversationId
+    });
   });
   
-  logger.info('Webhook processed successfully', {
-    processingTime: Date.now() - startTime,
-    contactId
+  logger.info('✅ WEBHOOK PROCESSED SUCCESSFULLY', {
+    traceId,
+    totalProcessingTime: Date.now() - startTime,
+    contactId,
+    finalMessageCount: result.messages?.length || 0,
+    appointmentBooked: result.appointmentBooked || false
   });
   
   // Return updated state with messages following MessagesAnnotation pattern
@@ -260,11 +353,12 @@ async function webhookHandlerNode(state, config) {
     messages: result.messages,
     contactId,
     phone,
-    leadInfo: currentLeadInfo
+    leadInfo: result.leadInfo || currentLeadInfo  // Use updated leadInfo from agent
   };
   
   } catch (error) {
-    logger.error('Webhook handler error', {
+    logger.error('❌ WEBHOOK HANDLER ERROR', {
+      traceId,
       error: error.message,
       stack: error.stack,
       contactId: state.contactId,
@@ -272,7 +366,8 @@ async function webhookHandlerNode(state, config) {
       errorCode: error.code,
       phase: 'webhook_processing',
       inputMessages: state.messages?.length || 0,
-      lastMessage: state.messages?.[state.messages.length - 1]?.content?.substring(0, 100)
+      lastMessage: state.messages?.[state.messages.length - 1]?.content?.substring(0, 100),
+      processingTimeBeforeError: Date.now() - startTime
     });
     
     // Log to LangSmith trace if available
