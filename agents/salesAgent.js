@@ -125,7 +125,16 @@ const extractLeadInfo = tool(
           extractionCount,
           limit: MAX_EXTRACTION_ATTEMPTS
         });
-        return new Command({ update: {} });
+        // Return tool message even when hitting limit
+        return new Command({
+          update: {
+            messages: [{
+              role: "tool",
+              content: "Max extraction attempts reached",
+              tool_call_id: config.toolCall?.id || "extract_lead_info"
+            }]
+          }
+        });
       }
       
       const llm = new ChatOpenAI({ model: "gpt-4", temperature: 0 });
@@ -177,7 +186,16 @@ const extractLeadInfo = tool(
             toolCallId,
             processingTime: Date.now() - startTime
           });
-          return new Command({ update: {} });
+          // Still need to return a tool message for the tool call
+          return new Command({
+            update: {
+              messages: [{
+                role: "tool",
+                content: "No new information extracted from message",
+                tool_call_id: config.toolCall?.id || "extract_lead_info"
+              }]
+            }
+          });
         }
         
         // Merge with existing info
