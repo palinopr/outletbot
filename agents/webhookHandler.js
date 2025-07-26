@@ -7,12 +7,16 @@ import crypto from 'crypto';
 import { Logger } from '../services/logger.js';
 import { config } from '../services/config.js';
 import { configureLangSmith } from '../services/langsmithConfig.js';
+import { interceptLangSmithRequests } from '../services/uuidInterceptor.js';
 
 // Initialize logger
 const logger = new Logger('webhookHandler');
 
 // Configure LangSmith to prevent multipart errors
 configureLangSmith();
+
+// Intercept and fix invalid UUIDs
+interceptLangSmithRequests();
 
 // Initialize services with lazy loading
 let ghlService;
