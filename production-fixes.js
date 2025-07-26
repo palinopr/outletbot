@@ -3,10 +3,10 @@
 export const PRODUCTION_FIXES = {
   // Increase timeouts for production environment
   timeouts: {
-    serviceInit: 10000,     // 10s for service initialization (was 3s)
-    conversation: 15000,    // 15s for conversation fetch (was 5s)
-    llm: 20000,            // 20s for LLM calls (was 10s)
-    overall: 45000         // 45s overall timeout
+    serviceInit: 30000,     // 30s for service initialization (was 10s) - needed for cold starts
+    conversation: 20000,    // 20s for conversation fetch (was 15s)
+    llm: 30000,            // 30s for LLM calls (was 20s)
+    overall: 90000         // 90s overall timeout
   },
   
   // Better error messages

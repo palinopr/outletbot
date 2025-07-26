@@ -169,14 +169,20 @@ async function webhookHandlerNode(state, config) {
   
   try {
     // Initialize services with retry and timeout
-    const initTimeout = new Promise((_, reject) => {
-      setTimeout(() => reject(new Error('Service initialization timeout')), getTimeout('serviceInit'));
-    });
-    
-    await Promise.race([
-      initialize(),
-      initTimeout
-    ]);
+    // Skip initialization if already done (warm instances)
+    if (!ghlService) {
+      logger.info('Cold start - initializing services...', { traceId });
+      const initTimeout = new Promise((_, reject) => {
+        setTimeout(() => reject(new Error('Service initialization timeout')), getTimeout('serviceInit'));
+      });
+      
+      await Promise.race([
+        initialize(),
+        initTimeout
+      ]);
+    } else {
+      logger.debug('Warm start - services already initialized', { traceId });
+    }
     
     const { messages } = state;
     const lastMessage = messages[messages.length - 1];
