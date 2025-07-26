@@ -22,7 +22,9 @@
     "@langchain/openai": "^0.6.3",
     "axios": "^1.11.0",
     "dotenv": "^17.2.1",
-    "langsmith": "^0.3.48",
     "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "langsmith": "^0.3.49"
   }
 }

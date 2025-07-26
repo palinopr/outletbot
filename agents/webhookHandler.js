@@ -154,8 +154,15 @@ async function webhookHandlerNode(state, config) {
   }
   
   try {
-    // Initialize services with retry
-    await initialize();
+    // Initialize services with retry and timeout
+    const initTimeout = new Promise((_, reject) => {
+      setTimeout(() => reject(new Error('Service initialization timeout')), 3000);
+    });
+    
+    await Promise.race([
+      initialize(),
+      initTimeout
+    ]);
     
     const { messages } = state;
     const lastMessage = messages[messages.length - 1];
