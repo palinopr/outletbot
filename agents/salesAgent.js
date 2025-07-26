@@ -802,7 +802,7 @@ After booking: appointmentBooked=true - only answer questions`;
 const llm = new ChatOpenAI({ 
   model: "gpt-4",
   temperature: 0.7,
-  timeout: 10000, // 10 second timeout for production
+  timeout: process.env.NODE_ENV === 'production' ? 20000 : 10000, // 20s in prod, 10s in dev
   maxRetries: 2    // Reduce retries to fail fast
 });
 

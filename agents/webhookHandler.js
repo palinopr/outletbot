@@ -8,6 +8,7 @@ import { Logger } from '../services/logger.js';
 import { config } from '../services/config.js';
 import { configureLangSmith } from '../services/langsmithConfig.js';
 import { interceptLangSmithRequests } from '../services/uuidInterceptor.js';
+import { getTimeout, getErrorMessage } from '../production-fixes.js';
 
 // Initialize logger
 const logger = new Logger('webhookHandler');
@@ -110,7 +111,11 @@ async function initialize(retries = 3) {
       } catch (error) {
         logger.error(`Initialization attempt ${i + 1} failed`, { 
           error: error.message,
-          attempt: i + 1 
+          errorType: error.name,
+          stack: error.stack,
+          attempt: i + 1,
+          hasGHLKey: !!process.env.GHL_API_KEY,
+          hasLocationId: !!process.env.GHL_LOCATION_ID
         });
         if (i === retries - 1) throw error;
         await new Promise(resolve => setTimeout(resolve, 1000 * (i + 1)));
@@ -165,7 +170,7 @@ async function webhookHandlerNode(state, config) {
   try {
     // Initialize services with retry and timeout
     const initTimeout = new Promise((_, reject) => {
-      setTimeout(() => reject(new Error('Service initialization timeout')), 3000);
+      setTimeout(() => reject(new Error('Service initialization timeout')), getTimeout('serviceInit'));
     });
     
     await Promise.race([
@@ -296,7 +301,7 @@ async function webhookHandlerNode(state, config) {
   );
   
   const conversationTimeoutPromise = new Promise((_, reject) => {
-    setTimeout(() => reject(new Error('Conversation fetch timeout')), 5000); // 5 seconds max for production
+    setTimeout(() => reject(new Error('Conversation fetch timeout')), getTimeout('conversation'));
   });
   
   let conversationState;
