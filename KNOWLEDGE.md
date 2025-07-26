@@ -12,19 +12,23 @@ This document captures the technical decisions, patterns, and lessons learned fr
 - Root cause: State management failure - tool couldn't access previous extractions
 - Impact: 3x higher costs, slower responses
 
-**Solution**: Implement proper state management using LangGraph's Command pattern
+**Solution**: Tools should return Command objects for proper state management
 ```javascript
-// Before: Tool returned plain objects
-return { leadInfo: extracted };
-
-// After: Tool returns Command to update state
+// CORRECT for createReactAgent: Return Command objects with plain message objects
 return new Command({
-  update: {
+  update: { 
     leadInfo: merged,
     extractionCount: count + 1,
-    processedMessages: [...processed, hash]
+    messages: [{
+      role: "tool",
+      content: `Extracted: ${JSON.stringify(extracted)}`,
+      tool_call_id: config.toolCall?.id || "extract_lead_info"
+    }]
   }
 });
+
+// Note: Command objects ARE supported and recommended with createReactAgent
+// Key: Use plain objects for messages, not Message class instances
 ```
 
 #### 2. Duplicate Appointment Confirmations
@@ -32,12 +36,14 @@ return new Command({
 - Root cause: No conversation termination after booking
 - Agent continued processing after appointment was booked
 
-**Solution**: Implement END signal in bookAppointment tool
+**Solution**: Return appointmentBooked flag and handle termination in the agent logic
 ```javascript
-return new Command({
-  update: { appointmentBooked: true },
-  goto: 'END' // Signal to terminate conversation
-});
+// Tool returns simple object with flag
+return {
+  success: true,
+  message: "¡Perfecto! Tu cita está confirmada...",
+  appointmentBooked: true
+};
 ```
 
 #### 3. Concurrent User State Corruption
@@ -48,40 +54,37 @@ let extractionCount = 0;
 const processedMessages = new Set();
 ```
 
-**Solution**: Move all state into conversation scope
+**Solution**: Use external state management for conversation data
 ```javascript
-// CORRECT: State annotation with proper reducers
-const AgentStateAnnotation = Annotation.Root({
-  extractionCount: Annotation({
-    reducer: (x, y) => y,
-    default: () => 0
-  }),
-  processedMessages: Annotation({
-    reducer: (x, y) => [...new Set([...x, ...y])],
-    default: () => []
-  })
+// CORRECT: External conversation state map
+const conversationState = new Map();
+
+// Store state per conversation
+conversationState.set(contactId, {
+  leadInfo: { ...currentState.leadInfo, ...newInfo },
+  lastUpdated: Date.now()
 });
 ```
 
 ## Architecture Patterns & Best Practices
 
 ### 1. State Management Pattern
-**Why**: LangGraph requires explicit state management for tool interactions
+**Why**: createReactAgent manages its own state internally
 
-**Pattern**: Use getCurrentTaskInput() to access state in tools
+**Pattern**: Tools return simple values, state is passed via config
 ```javascript
 const extractLeadInfo = tool(async ({ message }, config) => {
-  // Access current state
-  const currentState = getCurrentTaskInput();
-  const existingInfo = currentState?.leadInfo || {};
+  // Access current state from config
+  const currentLeadInfo = config?.configurable?.currentLeadInfo || {};
   
   // Process and merge
-  const merged = { ...existingInfo, ...extracted };
+  const merged = { ...currentLeadInfo, ...extracted };
   
-  // Return Command to update state
-  return new Command({
-    update: { leadInfo: merged }
-  });
+  // Return simple object (NOT Command)
+  return {
+    leadInfo: merged,
+    extracted: extracted
+  };
 });
 ```
 
@@ -89,14 +92,16 @@ const extractLeadInfo = tool(async ({ message }, config) => {
 **Why**: Prevent infinite loops and runaway costs
 
 **Implementation**:
-- Track attempts in state (not globals)
+- Track attempts externally or in config
 - Fail gracefully after MAX_ATTEMPTS
 - Reset counters per conversation
 
 ```javascript
-if (extractionCount >= MAX_EXTRACTION_ATTEMPTS) {
+// Track in external state or config
+const attempts = conversationState.get(contactId)?.extractionCount || 0;
+if (attempts >= MAX_EXTRACTION_ATTEMPTS) {
   logger.warn('Max attempts reached');
-  return new Command({ update: {} });
+  return {}; // Return empty object
 }
 ```
 
@@ -125,12 +130,12 @@ workflow.addConditionalEdges("agent", shouldEnd, {
 ```
 
 ### 5. Tool Consistency
-**Why**: Predictable state updates across all tools
+**Why**: Predictable behavior across all tools
 
-**Rule**: ALL tools must return Command objects
-- Success cases: Return Command with updates
-- Error cases: Return Command with error tracking
-- Never return plain values
+**Rule**: ALL tools should return Command objects for state management
+- Success cases: Return Command with update containing results
+- Error cases: Return Command with error info in messages
+- Command objects ARE fully compatible with createReactAgent (v0.2.33+)
 
 ## Performance Optimizations
 
@@ -184,22 +189,27 @@ let sharedCounter = 0; // Breaks with multiple users
 extractionCount: Annotation({ default: () => 0 })
 ```
 
-### 2. Forgetting Command Pattern
-**Wrong**:
-```javascript
-return { success: true, data: result };
-```
-
-**Right**:
+### 2. Using Command Pattern with createReactAgent
+**Correct** (Updated based on latest LangGraph docs):
 ```javascript
 return new Command({
-  update: { lastResult: result }
+  update: { 
+    lastResult: result,
+    messages: [{
+      role: "tool",
+      content: "Operation completed",
+      tool_call_id: config.toolCall?.id
+    }]
+  }
 });
 ```
 
+**Note**: Command objects ARE the recommended pattern per official LangGraph documentation.
+Key implementation detail: Use plain objects for messages in the update, not Message class instances.
+
 ### 3. Missing Error Boundaries
 **Wrong**: Let errors bubble up and crash
-**Right**: Catch errors and return Commands with error state
+**Right**: Catch errors and return objects with error info
 
 ### 4. Infinite Recursion
 **Prevention**:
@@ -259,20 +269,21 @@ Future: LRU cache with user-specific keys
 
 ## Key Takeaways
 
-1. **State Management is Critical**: Every piece of data must be explicitly managed through state annotations
-2. **Tools Must Return Commands**: Consistency prevents subtle bugs
+1. **State Management is Critical**: Use state annotations with proper reducers
+2. **Tools Should Return Command Objects**: With plain objects in messages array (not Message classes)
 3. **Global Variables are Dangerous**: Always scope to conversation
 4. **Termination is Essential**: Explicitly end conversations when complete
 5. **Circuit Breakers Save Money**: Prevent infinite loops and runaway costs
 6. **Test Concurrent Scenarios**: Single-user testing hides critical bugs
 7. **Trace Analysis is Invaluable**: LangSmith traces reveal hidden issues
+8. **System Prompt Configuration**: Use `prompt` parameter in createReactAgent
 
 ## Additional Improvements Implemented
 
 ### 1. Tool Consistency Completion
-- Fixed `parseTimeSelection` to return Command objects
-- Now ALL tools follow the same pattern
-- Ensures predictable state updates
+- Fixed all tools to return simple objects (not Command objects)
+- Now ALL tools follow the same pattern for createReactAgent
+- Ensures predictable behavior
 
 ### 2. Performance Monitoring
 - Added `performanceMetrics.js` for tracking optimization effectiveness
@@ -312,9 +323,20 @@ Current implementation uses global cache but is safe because:
 - Create runbook for common issues
 - Document deployment best practices
 
+## Important Update (January 26, 2025)
+
+**Critical Correction**: This document previously contained incorrect information about LangGraph patterns. After thorough analysis of the official LangGraph repository, the correct patterns are:
+
+1. **Tools SHOULD return Command objects** for proper state management
+2. **Custom state schemas** are supported via Annotation.Root
+3. **Dynamic prompts** are configured via prompt functions
+4. **Advanced features** like hooks and responseFormat are available
+
+The codebase has been updated to follow the official LangGraph patterns. See MIGRATION_SUMMARY.md for details.
+
 ## References
 
 - [LangGraph Documentation](https://langchain-ai.github.io/langgraph/)
-- [Command Pattern in LangGraph](https://langchain-ai.github.io/langgraph/how-tos/command/)
+- [createReactAgent Documentation](https://langchain-ai.github.io/langgraph/how-tos/create-react-agent/)
 - [State Management Best Practices](https://langchain-ai.github.io/langgraph/concepts/state/)
 - [Tool Calling Patterns](https://langchain-ai.github.io/langgraph/how-tos/tool-calling/)

@@ -2,8 +2,8 @@ import { createReactAgent } from "@langchain/langgraph/prebuilt";
 import { tool } from "@langchain/core/tools";
 import { z } from "zod";
 import { ChatOpenAI } from "@langchain/openai";
-import { SystemMessage, ToolMessage } from "@langchain/core/messages";
-import { getCurrentTaskInput, Annotation, MessagesAnnotation, MemorySaver, Command } from '@langchain/langgraph';
+import { SystemMessage, AIMessage } from "@langchain/core/messages";
+import { MemorySaver, Annotation, Command, MessagesAnnotation } from '@langchain/langgraph';
 import { Logger } from '../services/logger.js';
 import { config } from '../services/config.js';
 import { metrics } from '../services/monitoring.js';
@@ -31,54 +31,95 @@ const AGENT_CONFIG = {
 // Maximum extraction attempts per conversation
 const MAX_EXTRACTION_ATTEMPTS = 3;
 
+// Define custom state schema with Annotation.Root
+const AgentStateAnnotation = Annotation.Root({
+  // Include messages from MessagesAnnotation
+  ...MessagesAnnotation.spec,
+  
+  // Lead information
+  leadInfo: Annotation({
+    default: () => ({}),
+    reducer: (current, update) => ({ ...current, ...update })
+  }),
+  
+  // User info for context
+  userInfo: Annotation({
+    default: () => ({}),
+    reducer: (current, update) => ({ ...current, ...update })
+  }),
+  
+  // Track if appointment is booked
+  appointmentBooked: Annotation({
+    default: () => false
+  }),
+  
+  // Track extraction attempts
+  extractionCount: Annotation({
+    reducer: (x, y) => y,  // Replace value
+    default: () => 0
+  }),
+  
+  // Track processed messages to avoid duplicates
+  processedMessages: Annotation({
+    reducer: (x, y) => [...new Set([...x, ...y])], // Merge arrays
+    default: () => []
+  }),
+  
+  // Available calendar slots
+  availableSlots: Annotation({
+    default: () => []
+  }),
+  
+  // Contact and conversation IDs
+  contactId: Annotation({
+    default: () => null
+  }),
+  
+  conversationId: Annotation({
+    default: () => null
+  }),
+  
+  // GHL update status
+  ghlUpdated: Annotation({
+    default: () => false
+  }),
+  
+  // Last update timestamp
+  lastUpdate: Annotation({
+    default: () => null
+  })
+});
+
 // Tool: Extract lead information from messages
 const extractLeadInfo = tool(
   async ({ message }, config) => {
     const startTime = Date.now();
     try {
-      // Access the current state properly using getCurrentTaskInput
-      let currentState;
-      try {
-        currentState = getCurrentTaskInput();
-      } catch (e) {
-        logger.warn('getCurrentTaskInput not available, using empty state');
-        currentState = { leadInfo: {}, extractionCount: 0, processedMessages: [] };
-      }
-      
-      // Circuit breaker to prevent excessive extractions
+      // Access current state via config
+      const currentState = config?.getState ? await config.getState() : config?.configurable || {};
+      const currentLeadInfo = currentState.leadInfo || {};
       const extractionCount = currentState.extractionCount || 0;
-      if (extractionCount >= MAX_EXTRACTION_ATTEMPTS) {
-        logger.warn('Max extraction attempts reached, returning current state');
-        return new Command({
-          update: {}
-        });
-      }
       
-      // Deduplication - check if we've already processed this message
-      const messageHash = message.toLowerCase().trim();
-      const processedMessages = currentState.processedMessages || [];
-      if (processedMessages.includes(messageHash)) {
-        logger.debug('Message already processed, skipping extraction');
-        return new Command({
-          update: {}
-        });
+      // Check extraction limit
+      if (extractionCount >= MAX_EXTRACTION_ATTEMPTS) {
+        logger.warn('Max extraction attempts reached', { extractionCount });
+        return new Command({ update: {} });
       }
       
       const llm = new ChatOpenAI({ model: "gpt-4", temperature: 0 });
-      const existingLeadInfo = currentState?.leadInfo || {};
       
       // Build currentInfo from state
       const currentInfo = {
-        name: existingLeadInfo.name || "",
-        businessType: existingLeadInfo.businessType || "",
-        problem: existingLeadInfo.problem || "",
-        goal: existingLeadInfo.goal || "",
-        budget: existingLeadInfo.budget || 0,
-        email: existingLeadInfo.email || "",
-        businessDetails: existingLeadInfo.businessDetails || ""
+        name: currentLeadInfo.name || "",
+        businessType: currentLeadInfo.businessType || "",
+        problem: currentLeadInfo.problem || "",
+        goal: currentLeadInfo.goal || "",
+        budget: currentLeadInfo.budget || 0,
+        email: currentLeadInfo.email || "",
+        businessDetails: currentLeadInfo.businessDetails || ""
       };
       
-      logger.debug('Extract lead info - Current context', { currentInfo, extractionCount });
+      logger.debug('Extract lead info - Current context', { currentInfo });
       
       const prompt = `Analyze this customer message and extract any information provided:
       Message: "${message}"
@@ -111,9 +152,7 @@ const extractLeadInfo = tool(
         const hasChanges = Object.keys(extracted).length > 0;
         if (!hasChanges) {
           logger.debug('No new information extracted');
-          return new Command({
-            update: {}
-          });
+          return new Command({ update: {} });
         }
         
         // Merge with existing info
@@ -129,12 +168,16 @@ const extractLeadInfo = tool(
           mergedInfo: merged
         });
         
-        // Return Command to update state with extraction tracking
+        // Return Command object with state updates
         return new Command({
           update: {
             leadInfo: merged,
             extractionCount: extractionCount + 1,
-            processedMessages: [...processedMessages, messageHash]
+            messages: [{
+              role: "tool",
+              content: `Extracted: ${JSON.stringify(extracted)}`,
+              tool_call_id: config.toolCall?.id || "extract_lead_info",
+            }]
           }
         });
       } catch (e) {
@@ -142,28 +185,11 @@ const extractLeadInfo = tool(
           error: e.message,
           response: response.content 
         });
-        // Return update with incremented count even on error
-        return new Command({
-          update: {
-            extractionCount: extractionCount + 1,
-            processedMessages: [...processedMessages, messageHash]
-          }
-        });
+        return new Command({ update: {} });
       }
     } catch (error) {
       logger.error('Error in extractLeadInfo tool', { error: error.message });
-      // Return update with processed message tracking
-      const currentState = getCurrentTaskInput ? getCurrentTaskInput() : {};
-      const extractionCount = currentState.extractionCount || 0;
-      const processedMessages = currentState.processedMessages || [];
-      const messageHash = message.toLowerCase().trim();
-      
-      return new Command({
-        update: {
-          extractionCount: extractionCount + 1,
-          processedMessages: [...processedMessages, messageHash]
-        }
-      });
+      return new Command({ update: {} });
     }
   },
   {
@@ -185,7 +211,11 @@ const calendarCache = {
 
 // Tool: Get calendar slots (ONLY after full qualification)
 const getCalendarSlots = tool(
-  async ({ leadInfo, startDate, endDate }, config) => {
+  async ({ startDate, endDate }, config) => {
+    // Access current state via config
+    const currentState = config?.getState ? await config.getState() : config?.configurable || {};
+    const currentLeadInfo = currentState.leadInfo || {};
+    
     // Initialize services if not provided
     let ghlService = config?.configurable?.ghlService;
     let calendarId = config?.configurable?.calendarId || process.env.GHL_CALENDAR_ID;
@@ -199,25 +229,37 @@ const getCalendarSlots = tool(
     }
     
     // STRICT validation - must have ALL info before showing slots
-    if (!leadInfo.name || !leadInfo.problem || !leadInfo.goal || !leadInfo.budget || !leadInfo.email) {
-      return {
-        error: "Cannot fetch slots - missing required information",
-        missingFields: {
-          name: !leadInfo.name,
-          problem: !leadInfo.problem,
-          goal: !leadInfo.goal,
-          budget: !leadInfo.budget,
-          email: !leadInfo.email
-        }
+    if (!currentLeadInfo.name || !currentLeadInfo.problem || !currentLeadInfo.goal || !currentLeadInfo.budget || !currentLeadInfo.email) {
+      const missingFields = {
+        name: !currentLeadInfo.name,
+        problem: !currentLeadInfo.problem,
+        goal: !currentLeadInfo.goal,
+        budget: !currentLeadInfo.budget,
+        email: !currentLeadInfo.email
       };
+      
+      return new Command({
+        update: {
+          messages: [{
+            role: "tool",
+            content: "Missing required information for calendar: " + Object.keys(missingFields).filter(k => missingFields[k]).join(", "),
+            tool_call_id: config.toolCall?.id || "get_calendar_slots"
+          }]
+        }
+      });
     }
     
     // Budget must be qualified
-    if (leadInfo.budget < 300) {
-      return {
-        error: "Cannot fetch slots - budget under $300/month",
-        budget: leadInfo.budget
-      };
+    if (currentLeadInfo.budget < 300) {
+      return new Command({
+        update: {
+          messages: [{
+            role: "tool",
+            content: `Cannot fetch slots - budget under $300/month (current: $${currentLeadInfo.budget})`,
+            tool_call_id: config.toolCall?.id || "get_calendar_slots"
+          }]
+        }
+      });
     }
     
     // Default to next 7 days if dates not provided
@@ -244,53 +286,62 @@ const getCalendarSlots = tool(
       }
       
       // Format slots for display in Spanish with Texas timezone
-      return {
-        success: true,
-        slots: slots.slice(0, 5).map((slot, index) => {
-          const date = new Date(slot.startTime);
-          const spanishDays = {
-            'Monday': 'Lunes',
-            'Tuesday': 'Martes',
-            'Wednesday': 'Miércoles',
-            'Thursday': 'Jueves',
-            'Friday': 'Viernes',
-            'Saturday': 'Sábado',
-            'Sunday': 'Domingo'
-          };
-          const spanishMonths = {
-            'Jan': 'enero',
-            'Feb': 'febrero',
-            'Mar': 'marzo',
-            'Apr': 'abril',
-            'May': 'mayo',
-            'Jun': 'junio',
-            'Jul': 'julio',
-            'Aug': 'agosto',
-            'Sep': 'septiembre',
-            'Oct': 'octubre',
-            'Nov': 'noviembre',
-            'Dec': 'diciembre'
-          };
-          
-          const dayName = date.toLocaleString('en-US', { weekday: 'long', timeZone: 'America/Chicago' });
-          const monthName = date.toLocaleString('en-US', { month: 'short', timeZone: 'America/Chicago' });
-          const formattedTime = date.toLocaleString('es-US', {
-            day: 'numeric',
-            hour: 'numeric',
-            minute: '2-digit',
-            hour12: true,
-            timeZone: 'America/Chicago'
-          });
-          
-          return {
-            index: index + 1,
-            display: `${spanishDays[dayName]} ${formattedTime.split(',')[0]} de ${spanishMonths[monthName]} a las ${formattedTime.split(',')[1].trim()}`,
-            startTime: slot.startTime,
-            endTime: slot.endTime,
-            slotId: slot.id || `slot-${index}`
-          };
-        })
-      };
+      const formattedSlots = slots.slice(0, 5).map((slot, index) => {
+        const date = new Date(slot.startTime);
+        const spanishDays = {
+          'Monday': 'Lunes',
+          'Tuesday': 'Martes',
+          'Wednesday': 'Miércoles',
+          'Thursday': 'Jueves',
+          'Friday': 'Viernes',
+          'Saturday': 'Sábado',
+          'Sunday': 'Domingo'
+        };
+        const spanishMonths = {
+          'Jan': 'enero',
+          'Feb': 'febrero',
+          'Mar': 'marzo',
+          'Apr': 'abril',
+          'May': 'mayo',
+          'Jun': 'junio',
+          'Jul': 'julio',
+          'Aug': 'agosto',
+          'Sep': 'septiembre',
+          'Oct': 'octubre',
+          'Nov': 'noviembre',
+          'Dec': 'diciembre'
+        };
+        
+        const dayName = date.toLocaleString('en-US', { weekday: 'long', timeZone: 'America/Chicago' });
+        const monthName = date.toLocaleString('en-US', { month: 'short', timeZone: 'America/Chicago' });
+        const formattedTime = date.toLocaleString('es-US', {
+          day: 'numeric',
+          hour: 'numeric',
+          minute: '2-digit',
+          hour12: true,
+          timeZone: 'America/Chicago'
+        });
+        
+        return {
+          index: index + 1,
+          display: `${spanishDays[dayName]} ${formattedTime.split(',')[0]} de ${spanishMonths[monthName]} a las ${formattedTime.split(',')[1].trim()}`,
+          startTime: slot.startTime,
+          endTime: slot.endTime,
+          slotId: slot.id || `slot-${index}`
+        };
+      });
+      
+      // Return Command with slots in state
+      return new Command({
+        update: {
+          availableSlots: formattedSlots,
+          messages: [{
+            role: "tool",
+            content: `Found ${formattedSlots.length} available slots`,
+            tool_call_id: config.toolCall?.id || "get_calendar_slots"
+          }]
+        }
+      });
     } catch (error) {
       logger.error("Error fetching calendar slots", {
         error: error.message,
@@ -298,20 +349,21 @@ const getCalendarSlots = tool(
         startDate: start,
         endDate: end
       });
-      return { error: error.message, slots: [] };
+      return new Command({
+        update: {
+          messages: [{
+            role: "tool",
+            content: `Error fetching calendar: ${error.message}`,
+            tool_call_id: config.toolCall?.id || "get_calendar_slots"
+          }]
+        }
+      });
     }
   },
   {
     name: "get_calendar_slots",
     description: "Fetch available calendar slots from GHL (requires full qualification)",
     schema: z.object({
-      leadInfo: z.object({
-        name: z.string().optional().nullable(),
-        problem: z.string().optional().nullable(),
-        goal: z.string().optional().nullable(),
-        budget: z.number().optional().nullable(),
-        email: z.string().optional().nullable()
-      }).describe("Lead information (all fields required before showing slots)"),
       startDate: z.string().optional().describe("Start date in ISO format (defaults to today)"),
       endDate: z.string().optional().describe("End date in ISO format (defaults to 7 days from now)")
     })
@@ -321,11 +373,12 @@ const getCalendarSlots = tool(
 // Tool: Book appointment
 const bookAppointment = tool(
   async ({ slot, leadName, leadEmail }, config) => {
-    // Get contactId from config
-    const contactId = config?.configurable?.contactId;
+    // Access current state via config
+    const currentState = config?.getState ? await config.getState() : config?.configurable || {};
+    const contactId = currentState.contactId || config?.configurable?.contactId;
     
     if (!contactId) {
-      throw new Error('contactId not found in config. Cannot book appointment.');
+      throw new Error('contactId not found in state. Cannot book appointment.');
     }
     
     // Initialize services if not provided
@@ -352,19 +405,20 @@ const bookAppointment = tool(
         }
       );
       
-      // Return a Command to update state with appointmentBooked flag and END signal
+      // Return Command with termination signal
       return new Command({
         update: {
           appointmentBooked: true,
           messages: [
-            new ToolMessage({
+            {
+              role: "assistant",
               content: `¡Perfecto! Tu cita está confirmada para ${slot.display}. Te enviaré un recordatorio antes de nuestra llamada.`,
-              tool_call_id: config.toolCall?.id || 'book_appointment',
-              name: 'book_appointment'
-            })
-          ]
+              name: "María"
+            }
+          ],
+          lastUpdate: new Date().toISOString()
         },
-        goto: 'END' // Signal to end the conversation after booking
+        goto: "END"  // Terminate conversation after booking
       });
     } catch (error) {
       logger.error("Error booking appointment", {
@@ -373,15 +427,15 @@ const bookAppointment = tool(
         calendarId,
         slot
       });
-      // Return Command with error message
+      // Return Command with error
       return new Command({
         update: {
           messages: [
-            new ToolMessage({
+            {
+              role: "assistant",
               content: `Error al reservar la cita: ${error.message}. Por favor, intenta nuevamente.`,
-              tool_call_id: config.toolCall?.id || 'book_appointment',
-              name: 'book_appointment'
-            })
+              name: "María"
+            }
           ]
         }
       });
@@ -404,12 +458,14 @@ const bookAppointment = tool(
 
 // Tool: Update GHL contact
 const updateGHLContact = tool(
-  async ({ tags, notes, leadInfo }, config) => {
-    // Get contactId from config
-    const contactId = config?.configurable?.contactId;
+  async ({ tags, notes }, config) => {
+    // Access current state via config
+    const currentState = config?.getState ? await config.getState() : config?.configurable || {};
+    const contactId = currentState.contactId || config?.configurable?.contactId;
+    const leadInfo = currentState.leadInfo || {};
     
     if (!contactId) {
-      throw new Error('contactId not found in config. Cannot update contact.');
+      throw new Error('contactId not found in state. Cannot update contact.');
     }
     
     // Initialize GHL service if not provided
@@ -425,7 +481,7 @@ const updateGHLContact = tool(
     
     try {
       // Update tags
-      if (tags.length > 0) {
+      if (tags && tags.length > 0) {
         await ghlService.addTags(contactId, tags);
       }
       
@@ -435,7 +491,7 @@ const updateGHLContact = tool(
       }
       
       // Update custom fields if we have lead info
-      if (leadInfo) {
+      if (leadInfo && Object.keys(leadInfo).length > 0) {
         const updateData = {
           // Standard fields
           firstName: leadInfo.name,
@@ -458,15 +514,11 @@ const updateGHLContact = tool(
         await ghlService.updateContact(contactId, updateData);
       }
       
-      // Return Command to maintain consistency
+      // Return Command with update status
       return new Command({
         update: {
-          lastGHLUpdate: {
-            timestamp: new Date().toISOString(),
-            tags: tags,
-            hasNotes: !!notes,
-            hasLeadInfo: !!leadInfo
-          }
+          ghlUpdated: true,
+          lastUpdate: new Date().toISOString()
         }
       });
     } catch (error) {
@@ -477,35 +529,44 @@ const updateGHLContact = tool(
         hasNotes: !!notes,
         hasLeadInfo: !!leadInfo
       });
-      // Return Command with error tracking
+      // Return Command with error in state
       return new Command({
         update: {
-          lastError: `GHL Update Error: ${error.message}`
+          ghlUpdated: false,
+          lastUpdate: new Date().toISOString()
         }
       });
     }
   },
   {
     name: "update_ghl_contact",
-    description: "Update GHL contact with tags, notes, and lead information",
+    description: "Update GHL contact with tags and notes (uses leadInfo from state)",
     schema: z.object({
       tags: z.array(z.string()).describe("Tags to add to contact"),
-      notes: z.string().optional().describe("Note to add to contact timeline"),
-      leadInfo: z.object({
-        name: z.string().optional(),
-        email: z.string().optional(),
-        businessType: z.string().optional(),
-        budget: z.number().optional(),
-        problem: z.string().optional(),
-        goal: z.string().optional()
-      }).optional().describe("Lead information to update")
+      notes: z.string().optional().describe("Note to add to contact timeline")
     })
   }
 );
 
 // Tool: Parse time selection
 const parseTimeSelection = tool(
-  async ({ userMessage, availableSlots }, config) => {
+  async ({ userMessage }, config) => {
+    // Access current state to get available slots
+    const currentState = config?.getState ? await config.getState() : config?.configurable || {};
+    const availableSlots = currentState.availableSlots || [];
+    
+    if (!availableSlots || availableSlots.length === 0) {
+      return new Command({
+        update: {
+          messages: [{
+            role: "tool",
+            content: "No available slots in state to parse selection from",
+            tool_call_id: config.toolCall?.id || "parse_time_selection"
+          }]
+        }
+      });
+    }
+    
     const llm = new ChatOpenAI({ model: "gpt-4", temperature: 0 });
     
     const prompt = `User selected a time from these options:
@@ -524,53 +585,35 @@ const parseTimeSelection = tool(
     const selection = parseInt(response.content.trim());
     
     if (selection > 0 && selection <= availableSlots.length) {
-      // Return Command to update state with selected slot
+      // Return Command with selected slot
+      const selectedSlot = availableSlots[selection - 1];
       return new Command({
         update: {
-          selectedSlot: availableSlots[selection - 1],
-          messages: [
-            new ToolMessage({
-              content: JSON.stringify({
-                success: true,
-                selectedIndex: selection,
-                selectedSlot: availableSlots[selection - 1]
-              }),
-              tool_call_id: config.toolCall?.id || 'parse_time_selection',
-              name: 'parse_time_selection'
-            })
-          ]
+          messages: [{
+            role: "tool",
+            content: `User selected slot ${selection}: ${selectedSlot.display}`,
+            tool_call_id: config.toolCall?.id || "parse_time_selection"
+          }]
         }
       });
     }
     
-    // Return Command with error message
+    // Return Command with error
     return new Command({
       update: {
-        messages: [
-          new ToolMessage({
-            content: JSON.stringify({
-              success: false,
-              error: "Could not understand selection",
-              selectedIndex: 0
-            }),
-            tool_call_id: config.toolCall?.id || 'parse_time_selection',
-            name: 'parse_time_selection'
-          })
-        ]
+        messages: [{
+          role: "tool",
+          content: "Could not understand time selection from user message",
+          tool_call_id: config.toolCall?.id || "parse_time_selection"
+        }]
       }
     });
   },
   {
     name: "parse_time_selection",
-    description: "Parse user's time slot selection",
+    description: "Parse user's time slot selection (uses availableSlots from state)",
     schema: z.object({
-      userMessage: z.string().describe("User's message selecting a time"),
-      availableSlots: z.array(z.object({
-        index: z.number(),
-        display: z.string(),
-        startTime: z.string(),
-        endTime: z.string()
-      })).describe("Available slots shown to user")
+      userMessage: z.string().describe("User's message selecting a time")
     })
   }
 );
@@ -578,51 +621,18 @@ const parseTimeSelection = tool(
 // Tool: Send message via GHL WhatsApp (NOT webhook response)
 const sendGHLMessage = tool(
   async ({ message }, config) => {
-    // Get contactId from config - this is how we pass it from the agent
-    const contactId = config?.configurable?.contactId;
+    // Access current state via config
+    const currentState = config?.getState ? await config.getState() : config?.configurable || {};
+    const contactId = currentState.contactId || config?.configurable?.contactId;
     
     if (!contactId) {
-      throw new Error('contactId not found in config. Cannot send message.');
+      throw new Error('contactId not found in state. Cannot send message.');
     }
     
-    // Check if appointment is already booked
-    const currentState = getCurrentTaskInput ? getCurrentTaskInput() : {};
-    if (currentState.appointmentBooked) {
-      // Allow post-appointment messages but signal to end if it's a thank you
-      const isThankYou = message.toLowerCase().includes('gracias') || 
-                        message.toLowerCase().includes('thank');
-      
-      // Initialize GHL service
-      let ghlService = config?.configurable?.ghlService;
-      if (!ghlService) {
-        const { GHLService } = await import('../services/ghlService.js');
-        ghlService = new GHLService(
-          process.env.GHL_API_KEY,
-          process.env.GHL_LOCATION_ID
-        );
-      }
-      
-      try {
-        await ghlService.sendSMS(contactId, message);
-        
-        // If it's a thank you message after booking, signal END
-        if (isThankYou) {
-          return new Command({
-            update: {},
-            goto: 'END'
-          });
-        }
-        
-        return new Command({
-          update: {}
-        });
-      } catch (error) {
-        logger.error("Error sending post-appointment message", { error: error.message });
-        return new Command({ update: {} });
-      }
-    }
+    // Check if appointment is already booked from state
+    const appointmentBooked = currentState.appointmentBooked || false;
     
-    // Normal message sending for pre-appointment flow
+    // Initialize GHL service
     let ghlService = config?.configurable?.ghlService;
     
     if (!ghlService) {
@@ -636,10 +646,22 @@ const sendGHLMessage = tool(
     try {
       await ghlService.sendSMS(contactId, message);
       
+      logger.info('Message sent successfully', {
+        contactId,
+        messagePreview: message.substring(0, 50) + '...'
+      });
+      
+      // Return Command object with message update
       return new Command({
         update: {
-          lastMessageSent: message,
-          lastMessageTime: new Date().toISOString()
+          messages: [
+            {
+              role: "assistant",
+              content: message,
+              name: "María"
+            }
+          ],
+          lastUpdate: new Date().toISOString()
         }
       });
     } catch (error) {
@@ -648,9 +670,16 @@ const sendGHLMessage = tool(
         contactId,
         messageLength: message.length
       });
+      // Return Command with error in messages
       return new Command({
         update: {
-          lastError: error.message
+          messages: [
+            {
+              role: "tool",
+              content: `Error sending message: ${error.message}`,
+              tool_call_id: config.toolCall?.id || "send_ghl_message"
+            }
+          ]
         }
       });
     }
@@ -721,86 +750,54 @@ const tools = [
   parseTimeSelection
 ];
 
-// Define custom state annotation that includes leadInfo
-const AgentStateAnnotation = Annotation.Root({
-  ...MessagesAnnotation.spec,
-  leadInfo: Annotation({
-    reducer: (x, y) => ({ ...x, ...y }), // Merge leadInfo updates
-    default: () => ({})
-  }),
-  appointmentBooked: Annotation({
-    reducer: (x, y) => y || x, // Once true, stays true
-    default: () => false
-  }),
-  extractionCount: Annotation({
-    reducer: (x, y) => y, // Always use latest value
-    default: () => 0
-  }),
-  processedMessages: Annotation({
-    reducer: (x, y) => [...new Set([...(x || []), ...(y || [])])], // Merge and dedupe
-    default: () => []
-  }),
-  contactId: Annotation(),
-  conversationId: Annotation()
-});
+// Dynamic prompt function that uses state
+const promptFunction = (state) => {
+  const { leadInfo, appointmentBooked } = state;
+  
+  // Build context-aware prompt
+  let systemPrompt = SALES_AGENT_PROMPT;
+  
+  if (appointmentBooked) {
+    systemPrompt += `\n\nAPPOINTMENT ALREADY BOOKED. Only answer follow-up questions.`;
+  } else if (leadInfo && leadInfo.budget && leadInfo.budget >= 300) {
+    systemPrompt += `\n\nQualified lead with budget: $${leadInfo.budget}/month. Ready to show calendar.`;
+  }
+  
+  return [
+    { role: "system", content: systemPrompt },
+    ...state.messages
+  ];
+};
 
-// Bind tools to the model to ensure it knows they're available
+// Message window hook to limit context size
+const preModelHook = (state) => {
+  // Keep only last 10 messages for token efficiency
+  const recentMessages = state.messages.slice(-10);
+  
+  return {
+    ...state,
+    messages: recentMessages
+  };
+};
+
+// Bind tools to the model
 const modelWithTools = llm.bindTools(tools);
 
-// Create the agent with proper state management
-export const graph = createReactAgent({
+// Create the agent with modern parameters
+export const salesAgent = createReactAgent({
   llm: modelWithTools,
   tools: tools,
-  checkpointSaver: checkpointer,
-  stateModifier: (state) => {
-    // Add current lead info to the prompt if available
-    let enhancedPrompt = SALES_AGENT_PROMPT;
-    
-    if (state.leadInfo) {
-      const info = state.leadInfo;
-      const knownInfo = [];
-      if (info.name) knownInfo.push(`Nombre: ${info.name}`);
-      if (info.businessType) knownInfo.push(`Tipo de negocio: ${info.businessType}`);
-      if (info.problem) knownInfo.push(`Problema: ${info.problem}`);
-      if (info.goal) knownInfo.push(`Meta: ${info.goal}`);
-      if (info.budget) knownInfo.push(`Presupuesto: $${info.budget}/mes`);
-      if (info.email) knownInfo.push(`Email: ${info.email}`);
-      
-      if (knownInfo.length > 0) {
-        enhancedPrompt += `\n\n🔴 INFORMACIÓN CONOCIDA:\n${knownInfo.join('\n')}\n\n`;
-        
-        // Determine current stage based on what we have
-        if (state.appointmentBooked) {
-          enhancedPrompt += `STAGE: APPOINTMENT BOOKED - Only handle follow-up questions`;
-        } else if (!info.name) {
-          enhancedPrompt += `STAGE: Ask for NAME`;
-        } else if (!info.problem) {
-          enhancedPrompt += `STAGE: Ask about PROBLEM`;
-        } else if (!info.goal) {
-          enhancedPrompt += `STAGE: Ask about GOAL`;
-        } else if (!info.budget) {
-          enhancedPrompt += `STAGE: Ask about BUDGET`;
-        } else if (info.budget >= 300 && !info.email) {
-          enhancedPrompt += `STAGE: Ask for EMAIL`;
-        } else if (info.email) {
-          enhancedPrompt += `STAGE: Show CALENDAR`;
-        }
-      }
-    }
-    
-    // Check if we should end the conversation
-    if (state.appointmentBooked) {
-      // Add a special marker that the agent can recognize
-      enhancedPrompt += `\n\n⚠️ APPOINTMENT IS BOOKED - Only answer follow-up questions. Do not re-qualify or book again.`;
-    }
-    
-    const systemMessage = new SystemMessage(enhancedPrompt);
-    return [systemMessage, ...state.messages];
-  }
+  stateSchema: AgentStateAnnotation,  // Custom state schema
+  checkpointer: checkpointer,
+  prompt: promptFunction,  // Dynamic prompt function
+  preModelHook: preModelHook,  // Message windowing
 });
 
-// Enhanced sales agent with error recovery
-export async function salesAgent(input, agentConfig) {
+// Keep graph export for backwards compatibility
+export const graph = salesAgent;
+
+// Enhanced sales agent wrapper with error recovery
+export async function salesAgentInvoke(input, agentConfig) {
   logger.info('Agent invoked', {
     messageCount: input.messages?.length || 0,
     hasLeadInfo: !!input.leadInfo,
@@ -808,23 +805,39 @@ export async function salesAgent(input, agentConfig) {
   });
   
   const startTime = Date.now();
+  const contactId = input.contactId || agentConfig?.configurable?.contactId;
   
   // Track conversation start
   if (!input.isResume) {
     metrics.recordConversationStarted();
   }
   
-  // Enhanced config with timeout tracking and thread_id for checkpointing
+  // Prepare initial state with all necessary fields
+  const initialState = {
+    messages: input.messages || [],
+    leadInfo: input.leadInfo || {},
+    contactId: contactId,
+    conversationId: input.conversationId || null,
+    appointmentBooked: false,
+    extractionCount: 0,
+    processedMessages: [],
+    availableSlots: [],
+    ghlUpdated: false,
+    lastUpdate: null,
+    userInfo: {}
+  };
+  
+  // Enhanced config with thread_id for checkpointing
   const enhancedConfig = {
     ...agentConfig,
     configurable: {
       ...agentConfig?.configurable,
-      contactId: input.contactId || agentConfig?.configurable?.contactId,
-      // Use contactId as thread_id for conversation persistence
-      thread_id: input.contactId || agentConfig?.configurable?.contactId || 'default',
+      thread_id: contactId || 'default',  // For conversation persistence
       conversationStartTime: startTime,
       agentConfig: AGENT_CONFIG,
-      currentLeadInfo: input.leadInfo || {} // Pass leadInfo through config for tools
+      // Pass GHL service and calendar ID for tools
+      ghlService: agentConfig?.configurable?.ghlService,
+      calendarId: agentConfig?.configurable?.calendarId
     }
   };
   
@@ -838,7 +851,7 @@ export async function salesAgent(input, agentConfig) {
     
     // Run agent with timeout and recursion limit
     const result = await Promise.race([
-      graph.invoke(input, {
+      salesAgent.invoke(initialState, {
         ...enhancedConfig,
         recursionLimit: 25 // Prevent infinite loops
       }),
@@ -847,8 +860,11 @@ export async function salesAgent(input, agentConfig) {
     
     logger.info('Conversation completed', {
       duration: Date.now() - startTime,
-      messageCount: result.messages?.length || 0
+      messageCount: result.messages?.length || 0,
+      appointmentBooked: result.appointmentBooked,
+      leadInfo: result.leadInfo
     });
+    
     return result;
     
   } catch (error) {
@@ -861,12 +877,10 @@ export async function salesAgent(input, agentConfig) {
     // Handle specific error types
     if (error.message === 'Conversation timeout exceeded') {
       return {
+        ...initialState,
         messages: [
           ...input.messages,
-          {
-            role: 'assistant',
-            content: 'Lo siento, la conversación tardó demasiado. Por favor, intenta de nuevo o contacta soporte.'
-          }
+          new AIMessage('Lo siento, la conversación tardó demasiado. Por favor, intenta de nuevo o contacta soporte.')
         ]
       };
     }
@@ -875,12 +889,10 @@ export async function salesAgent(input, agentConfig) {
     if (error.name === 'CancelledError' || error.message.includes('cancelled')) {
       logger.warn('Operation was cancelled - likely due to platform restart');
       return {
+        ...initialState,
         messages: [
           ...input.messages,
-          {
-            role: 'assistant',
-            content: 'Hubo una interrupción temporal. Por favor, envía tu mensaje nuevamente.'
-          }
+          new AIMessage('Hubo una interrupción temporal. Por favor, envía tu mensaje nuevamente.')
         ]
       };
     }
@@ -905,3 +917,6 @@ export const agentConfig = AGENT_CONFIG;
 
 // Export prompt for reuse
 export { SALES_AGENT_PROMPT };
+
+// Export state annotation for testing
+export { AgentStateAnnotation };

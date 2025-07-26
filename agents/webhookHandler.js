@@ -1,7 +1,7 @@
-import { salesAgent } from './salesAgent.js';
+import { salesAgentInvoke } from './salesAgent.js';
 import { GHLService, formatPhoneNumber } from '../services/ghlService.js';
 import ConversationManager from '../services/conversationManager.js';
-import { HumanMessage } from '@langchain/core/messages';
+import { HumanMessage, AIMessage } from '@langchain/core/messages';
 import { StateGraph, MessagesAnnotation, Annotation, END, START } from '@langchain/langgraph';
 import crypto from 'crypto';
 import { Logger } from '../services/logger.js';
@@ -101,14 +101,30 @@ async function webhookHandlerNode(state, config) {
   // Parse webhook payload from message content
   let webhookData;
   try {
-    webhookData = JSON.parse(lastMessage.content);
+    if (typeof lastMessage.content === 'string' && lastMessage.content.trim().startsWith('{')) {
+      webhookData = JSON.parse(lastMessage.content);
+      logger.debug('Parsed JSON webhook payload', {
+        keys: Object.keys(webhookData),
+        hasPhone: !!webhookData.phone,
+        hasMessage: !!webhookData.message,
+        hasContactId: !!webhookData.contactId
+      });
+    } else {
+      // If not JSON, treat as regular message with contactId from state
+      webhookData = {
+        message: lastMessage.content,
+        contactId: state.contactId || config?.configurable?.contactId,
+        phone: state.phone || config?.configurable?.phone
+      };
+      logger.debug('Using plain text message', { messageLength: lastMessage.content.length });
+    }
   } catch (e) {
-    // If not JSON, treat as regular message with contactId from state
-    webhookData = {
-      message: lastMessage.content,
-      contactId: state.contactId || config?.configurable?.contactId,
-      phone: state.phone || config?.configurable?.phone
-    };
+    logger.error('Invalid webhook payload', {
+      content: lastMessage.content?.substring(0, 200),
+      error: e.message,
+      contentType: typeof lastMessage.content
+    });
+    throw new Error('Invalid webhook payload format');
   }
   
   const { phone, message, contactId } = webhookData;
@@ -214,7 +230,7 @@ async function webhookHandlerNode(state, config) {
   };
   
   // Invoke the sales agent with proper configuration
-  const result = await salesAgent({
+  const result = await salesAgentInvoke({
     messages: agentMessages,
     // Pass current lead info as context
     leadInfo: currentLeadInfo,
@@ -225,11 +241,8 @@ async function webhookHandlerNode(state, config) {
     configurable: {
       ghlService,
       calendarId: process.env.GHL_CALENDAR_ID,
-      contactId,
-      currentLeadInfo
-    },
-    // Add recursion limit per LangGraph docs
-    recursionLimit: 25
+      contactId
+    }
   });
   
   // Clear conversation cache (non-blocking)
@@ -254,8 +267,18 @@ async function webhookHandlerNode(state, config) {
     logger.error('Webhook handler error', {
       error: error.message,
       stack: error.stack,
-      contactId: state.contactId
+      contactId: state.contactId,
+      errorType: error.name,
+      errorCode: error.code,
+      phase: 'webhook_processing',
+      inputMessages: state.messages?.length || 0,
+      lastMessage: state.messages?.[state.messages.length - 1]?.content?.substring(0, 100)
     });
+    
+    // Log to LangSmith trace if available
+    if (config.callbacks) {
+      config.callbacks.handleError?.(error);
+    }
     
     // Return user-friendly error message
     const errorMessage = error.name === 'CancelledError' || error.message.includes('cancelled')
@@ -265,23 +288,26 @@ async function webhookHandlerNode(state, config) {
     return {
       messages: [
         ...state.messages,
-        {
-          role: 'assistant',
-          content: errorMessage
-        }
-      ]
+        new AIMessage({
+          content: errorMessage,
+          name: 'María'
+        })
+      ],
+      contactId: state.contactId,
+      phone: state.phone
     };
   }
 }
 
 // Define extended state annotation for webhook handler
 const WebhookAnnotation = Annotation.Root({
-  messages: Annotation({
-    reducer: (x, y) => x.concat(y),
-    default: () => []
+  ...MessagesAnnotation.spec,  // Use the spec to properly inherit message handling
+  contactId: Annotation({
+    default: () => null
   }),
-  contactId: Annotation(),
-  phone: Annotation(),
+  phone: Annotation({
+    default: () => null
+  }),
   leadInfo: Annotation({
     reducer: (x, y) => ({ ...x, ...y }),
     default: () => ({})

@@ -338,7 +338,7 @@ if (extractionCount >= MAX_EXTRACTION_ATTEMPTS) {
 ### Architecture Patterns Now Used
 
 1. **State Pattern**: `getCurrentTaskInput()` for accessing state in tools
-2. **Command Pattern**: All tools return Command objects
+2. **Command Pattern**: All tools return Command objects with plain message objects
 3. **Circuit Breaker**: Max attempts with state tracking
 4. **Conditional Edges**: Proper conversation termination
 5. **Message Deduplication**: Hash-based duplicate prevention
@@ -352,10 +352,11 @@ if (extractionCount >= MAX_EXTRACTION_ATTEMPTS) {
 ### Key Lessons Learned
 
 1. **Always Use State Annotations**: Never use global variables
-2. **Tools Must Return Commands**: Consistency prevents bugs
+2. **Tools Must Return Commands**: Use plain objects in messages array, not Message classes
 3. **Explicit Termination**: Always signal when conversation complete
 4. **Test Concurrent Users**: Single-user testing hides critical bugs
 5. **Trace Analysis Essential**: LangSmith traces reveal hidden patterns
+6. **Command Objects Work**: They ARE compatible with createReactAgent (v0.2.33+)
 
 ### Documentation
 - See `KNOWLEDGE.md` for detailed technical documentation

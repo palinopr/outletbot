@@ -271,6 +271,51 @@ Customer: "son 500 al mes"
 - **Response Time**: Maintained at 1-3 seconds
 - **Concurrent Users**: Unlimited (no shared state)
 
+## Common Issues & Fixes
+
+### 1. Message Duplication in Webhook Handler
+**Symptom**: Input messages appear twice in trace outputs
+**Cause**: Incorrect message reducer using `concat`
+**Fix**: Use `MessagesAnnotation.spec` spread or implement deduplication:
+```javascript
+const WebhookAnnotation = Annotation.Root({
+  ...MessagesAnnotation.spec,  // Built-in deduplication via spread
+  // ... other fields
+});
+```
+
+### 2. "Internal scratchpad not initialized" Error
+**Symptom**: Error when calling getCurrentTaskInput() outside agent context
+**Cause**: Function only available during actual graph execution
+**Fix**: Add try-catch when using getCurrentTaskInput():
+```javascript
+try {
+  currentState = getCurrentTaskInput();
+} catch (e) {
+  currentState = { leadInfo: {}, extractionCount: 0 };
+}
+```
+
+### 3. Webhook Handler Fails Before Invoking Sales Agent
+**Symptom**: No tool calls in trace, generic error message returned
+**Cause**: Error in webhook processing (parsing, initialization, etc.)
+**Fix**: Add detailed error logging and validation:
+```javascript
+if (typeof lastMessage.content === 'string') {
+  try {
+    webhookData = JSON.parse(lastMessage.content);
+  } catch (e) {
+    logger.error('Invalid webhook payload', { content: lastMessage.content });
+    throw new Error('Invalid webhook payload format');
+  }
+}
+```
+
+### 4. Excessive Tool Calls
+**Symptom**: Same tool called 10+ times in one conversation
+**Cause**: State not propagating correctly between tool calls
+**Fix**: Ensure all tools return Command objects with state updates
+
 ## Summary
 - **Total Messages**: 7 exchanges (typical flow)
 - **Time**: ~6 minutes
