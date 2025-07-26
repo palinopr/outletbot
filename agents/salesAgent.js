@@ -102,8 +102,11 @@ const extractLeadInfo = tool(
     });
     
     try {
-      // Access current state via config
-      const currentState = config?.getState ? await config.getState() : config?.configurable || {};
+      // Access current state - check multiple sources for state
+      const graphState = config?.getState ? await config.getState() : null;
+      const configState = config?.configurable || {};
+      // Prefer graph state if available, otherwise use config
+      const currentState = graphState || configState;
       const currentLeadInfo = currentState.leadInfo || {};
       const extractionCount = currentState.extractionCount || 0;
       
@@ -275,8 +278,11 @@ const getCalendarSlots = tool(
   async ({ startDate, endDate }, config) => {
     const toolCallId = config.toolCall?.id || 'get_calendar_slots';
     
-    // Access current state via config
-    const currentState = config?.getState ? await config.getState() : config?.configurable || {};
+    // Access current state - check multiple sources for state
+    const graphState = config?.getState ? await config.getState() : null;
+    const configState = config?.configurable || {};
+    // Prefer graph state if available, otherwise use config
+    const currentState = graphState || configState;
     const currentLeadInfo = currentState.leadInfo || {};
     
     // Initialize services if not provided
@@ -438,8 +444,11 @@ const bookAppointment = tool(
   async ({ slot, leadName, leadEmail }, config) => {
     const toolCallId = config.toolCall?.id || 'book_appointment';
     
-    // Access current state via config
-    const currentState = config?.getState ? await config.getState() : config?.configurable || {};
+    // Access current state - check multiple sources for state
+    const graphState = config?.getState ? await config.getState() : null;
+    const configState = config?.configurable || {};
+    // Prefer graph state if available, otherwise use config
+    const currentState = graphState || configState;
     const contactId = currentState.contactId || config?.configurable?.contactId;
     
     if (!contactId) {
@@ -526,8 +535,11 @@ const updateGHLContact = tool(
   async ({ tags, notes }, config) => {
     const toolCallId = config.toolCall?.id || 'update_ghl_contact';
     
-    // Access current state via config
-    const currentState = config?.getState ? await config.getState() : config?.configurable || {};
+    // Access current state - check multiple sources for state
+    const graphState = config?.getState ? await config.getState() : null;
+    const configState = config?.configurable || {};
+    // Prefer graph state if available, otherwise use config
+    const currentState = graphState || configState;
     const contactId = currentState.contactId || config?.configurable?.contactId;
     const leadInfo = currentState.leadInfo || {};
     
@@ -710,8 +722,11 @@ const sendGHLMessage = tool(
       messagePreview: message.substring(0, 50)
     });
     
-    // Access current state via config
-    const currentState = config?.getState ? await config.getState() : config?.configurable || {};
+    // Access current state - check multiple sources for state
+    const graphState = config?.getState ? await config.getState() : null;
+    const configState = config?.configurable || {};
+    // Prefer graph state if available, otherwise use config
+    const currentState = graphState || configState;
     const contactId = currentState.contactId || config?.configurable?.contactId;
     
     if (!contactId) {
@@ -1037,10 +1052,16 @@ export async function salesAgentInvoke(input, agentConfig) {
     });
     
     // Run agent with timeout and recursion limit
+    // Pass state in configurable so tools can access it
     const result = await Promise.race([
       salesAgent.invoke(initialState, {
         ...enhancedConfig,
-        recursionLimit: 25 // Prevent infinite loops
+        recursionLimit: 25, // Prevent infinite loops
+        configurable: {
+          ...enhancedConfig.configurable,
+          // Ensure state is available to tools
+          ...initialState
+        }
       }),
       conversationTimeoutPromise
     ]);
