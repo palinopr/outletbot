@@ -1,11 +1,18 @@
-import { HumanMessage, AIMessage } from '@langchain/core/messages';
+import { HumanMessage, AIMessage, SystemMessage } from '@langchain/core/messages';
+import { ChatOpenAI } from '@langchain/openai';
+import { config } from './config.js';
+import { Logger } from './logger.js';
 
 export class ConversationManager {
   constructor(ghlService) {
     this.ghlService = ghlService;
+    this.logger = new Logger('ConversationManager');
     // Keep a small cache for performance (5 minute TTL)
     this.cache = new Map();
     this.cacheTTL = 5 * 60 * 1000; // 5 minutes
+    // Configuration for conversation windowing
+    this.maxMessagesInWindow = config.maxMessagesInConversation;
+    this.enableSummarization = config.features.enableSummarization;
   }
 
   // Get conversation state from GHL
@@ -22,7 +29,10 @@ export class ConversationManager {
       }
 
       // Get conversation from GHL
-      console.log(`Getting conversation for contactId: ${contactId}, conversationId: ${conversationId || 'not provided'}`);
+      this.logger.debug('Getting conversation', {
+        contactId,
+        conversationId: conversationId || 'not provided'
+      });
       
       if (conversationId && !conversationId.startsWith('conv_')) {
         // Real conversation ID provided
@@ -31,16 +41,53 @@ export class ConversationManager {
         // Need to find or create conversation
         conversation = await this.ghlService.getOrCreateConversation(contactId, phone);
         conversationId = conversation.id;
-        console.log(`Created/retrieved conversation with ID: ${conversationId}`);
+        this.logger.info('Created/retrieved conversation', { conversationId });
       }
 
       // Get conversation messages from GHL
       const ghlMessages = await this.ghlService.getConversationMessages(conversationId);
-      console.log(`Fetched ${ghlMessages.length} messages from GHL for conversation ${conversationId}`);
+      this.logger.info('Fetched messages from GHL', {
+        messageCount: ghlMessages.length,
+        conversationId
+      });
+      
+      // Apply windowing if needed
+      let processedMessages = ghlMessages;
+      let summaryPrefix = null;
+      
+      if (ghlMessages.length > this.maxMessagesInWindow && this.enableSummarization) {
+        // Generate summary of older messages
+        const olderMessages = ghlMessages.slice(0, -this.maxMessagesInWindow);
+        const recentMessages = ghlMessages.slice(-this.maxMessagesInWindow);
+        
+        try {
+          summaryPrefix = await this.generateConversationSummary(olderMessages);
+          this.logger.info('Generated conversation summary', {
+            olderMessageCount: olderMessages.length
+          });
+          processedMessages = recentMessages;
+        } catch (error) {
+          this.logger.error('Failed to generate summary, using all messages', {
+            error: error.message
+          });
+          processedMessages = ghlMessages;
+        }
+      }
       
       // Convert GHL messages to LangChain format
-      messages = this.convertGHLMessages(ghlMessages);
-      console.log(`Converted to ${messages.length} LangChain messages`);
+      messages = this.convertGHLMessages(processedMessages);
+      
+      // Add summary as first message if generated
+      if (summaryPrefix) {
+        messages.unshift(new SystemMessage(
+          `[Resumen de conversación anterior: ${summaryPrefix}]`
+        ));
+      }
+      
+      this.logger.debug('Converted messages to LangChain format', {
+        messageCount: messages.length,
+        hasSummary: !!summaryPrefix
+      });
       
       // Extract lead information from messages and contact
       const leadInfo = await this.extractLeadInfo(messages, contactId);
@@ -64,7 +111,11 @@ export class ConversationManager {
 
       return state;
     } catch (error) {
-      console.error('Error getting conversation state:', error);
+      this.logger.error('Error getting conversation state', {
+        error: error.message,
+        contactId,
+        conversationId
+      });
       // Return state with whatever we managed to fetch
       return {
         conversationId: conversationId || 'unknown',
@@ -114,7 +165,9 @@ export class ConversationManager {
           messageBody.includes('"sent":') ||
           messageBody.includes('"updated":') ||
           messageBody.startsWith('{') && messageBody.endsWith('}')) {
-        console.log('Skipping tool response/system message:', messageBody.substring(0, 50) + '...');
+        this.logger.debug('Skipping tool response/system message', { 
+          preview: messageBody.substring(0, 50) + '...' 
+        });
         continue;
       }
       
@@ -125,7 +178,11 @@ export class ConversationManager {
       }
     }
     
-    console.log(`Converted messages: ${messages.length} (${messages.filter(m => m instanceof HumanMessage).length} human, ${messages.filter(m => m instanceof AIMessage).length} AI)`);
+    this.logger.debug('Message conversion complete', {
+      total: messages.length,
+      human: messages.filter(m => m instanceof HumanMessage).length,
+      ai: messages.filter(m => m instanceof AIMessage).length
+    });
     
     return messages;
   }
@@ -165,7 +222,10 @@ export class ConversationManager {
         }
       }
     } catch (error) {
-      console.error(`Error fetching contact ${contactId}:`, error.message);
+      this.logger.error('Error fetching contact details', {
+        contactId,
+        error: error.message
+      });
       // Continue without contact details - we can still use message history
     }
 
@@ -196,6 +256,53 @@ export class ConversationManager {
     }
 
     return info;
+  }
+
+  // Clear cache for a specific conversation
+  clearCache(contactId, conversationId) {
+    const cacheKey = `${contactId}-${conversationId}`;
+    this.cache.delete(cacheKey);
+  }
+
+  // Generate a summary of older messages
+  async generateConversationSummary(olderMessages) {
+    try {
+      const llm = new ChatOpenAI({ 
+        model: 'gpt-3.5-turbo', 
+        temperature: 0,
+        maxTokens: 200
+      });
+      
+      // Convert messages to readable format
+      const conversationText = olderMessages.map(msg => {
+        const sender = msg.direction === 'inbound' ? 'Cliente' : 'Agente';
+        return `${sender}: ${msg.body || msg.message || ''}`;
+      }).join('\n');
+      
+      const prompt = `Resume esta conversación en 2-3 oraciones, enfocándote en:
+- Nombre del cliente
+- Tipo de negocio
+- Problema principal mencionado
+- Presupuesto si se mencionó
+- Cualquier decisión importante
+
+Conversación:
+${conversationText.substring(0, 2000)}...`; // Limit context to avoid token issues
+      
+      const response = await llm.invoke([
+        new SystemMessage('Eres un asistente que resume conversaciones de ventas. Sé conciso y específico.'),
+        new HumanMessage(prompt)
+      ]);
+      
+      return response.content;
+    } catch (error) {
+      this.logger.error('Error generating conversation summary', {
+        error: error.message,
+        messageCount: olderMessages.length
+      });
+      // Return a basic summary on error
+      return `Conversación previa con ${olderMessages.length} mensajes. Cliente en proceso de calificación.`;
+    }
   }
 
   // Clear cache for a specific conversation

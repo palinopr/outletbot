@@ -1,0 +1,91 @@
+%% WhatsApp Sales Bot Architecture Diagram
+%% Copy this entire content to https://www.mermaidchart.com/
+
+graph TB
+    subgraph "🌐 External Systems"
+        META[Meta/WhatsApp] 
+        GHL[GoHighLevel API]
+        CAL[Calendar System]
+    end
+
+    subgraph "📥 Webhook Layer"
+        META -->|webhook| EP["/webhook/meta-lead"]
+        EP --> API["<b>langgraph-api.js</b><br/>• Request validation<br/>• Deduplication (MD5)<br/>• Request locking"]
+        API -->|duplicate?| DUP{Check Hash}
+        DUP -->|exists| SKIP[Return 200 - Skip]
+        DUP -->|new| HANDLER
+    end
+
+    subgraph "🧠 Message Processing"
+        HANDLER["<b>webhookHandler.js</b><br/>• Initialize services<br/>• Process webhook<br/>• Clear cache"]
+        HANDLER --> CM["<b>ConversationManager</b><br/>• Fetch history from GHL<br/>• Filter tool responses<br/>• Build state"]
+        CM <--> GHL
+        CM --> STATE[["<b>Conversation State</b><br/>📋 messages[]<br/>👤 leadInfo<br/>🆔 contactId<br/>💬 conversationId"]]
+    end
+
+    subgraph "🤖 Sales Agent Core"
+        STATE --> AGENT["<b>salesAgent.js</b><br/>• createReactAgent<br/>• Custom state schema<br/>• Context-aware prompt"]
+        
+        AGENT --> TOOLS{Tool Selection}
+        
+        subgraph "🔧 Agent Tools"
+            T1["<b>extractLeadInfo</b><br/>• getCurrentTaskInput()<br/>• Merge with existing<br/>• Return full context"]
+            T2["<b>sendGHLMessage</b><br/>• WhatsApp delivery<br/>• Response tracking"]
+            T3["<b>updateGHLContact</b><br/>• Tags & custom fields<br/>• Notes timeline<br/>• Lead status"]
+            T4["<b>getCalendarSlots</b><br/>• Validate qualification<br/>• Fetch availability<br/>• Format slots"]
+            T5["<b>bookAppointment</b><br/>• Parse selection<br/>• Create booking<br/>• Send confirmation"]
+        end
+        
+        TOOLS -->|extract| T1
+        TOOLS -->|respond| T2
+        TOOLS -->|update| T3
+        TOOLS -->|calendar| T4
+        TOOLS -->|book| T5
+        
+        T1 -.->|updates| STATE
+        T2 --> GHL
+        T3 --> GHL
+        T4 <--> CAL
+        T5 --> CAL
+    end
+
+    subgraph "📊 7-Step Qualification Flow"
+        direction LR
+        S1[1️⃣ Greeting]
+        S2[2️⃣ Name]
+        S3[3️⃣ Problem]
+        S4[4️⃣ Goal]
+        S5[5️⃣ Budget]
+        S6[6️⃣ Email]
+        S7[7️⃣ Booking]
+        
+        S1 -->|"Hola"| S2
+        S2 -->|"Soy Jaime"| S3
+        S3 -->|"Necesito clientes"| S4
+        S4 -->|"Aumentar 50%"| S5
+        S5 -->|">=$300"| S6
+        S5 -.->|"<$300"| NURTURE[Nurture Lead]
+        S6 -->|"email@dom"| S7
+        S7 -->|"Martes 11am"| DONE[✅ Booked]
+    end
+
+    subgraph "💾 Data Updates"
+        UPDATE_DATA["<b>GHL Updates</b><br/>• Tags: qualified-lead, budget-300-plus<br/>• Fields: name, budget, goal, business_type<br/>• Notes: [timestamp] conversation progress"]
+    end
+
+    T3 --> UPDATE_DATA
+    UPDATE_DATA --> GHL
+
+    classDef external fill:#e3f2fd,stroke:#1976d2,stroke-width:2px
+    classDef processing fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
+    classDef agent fill:#e8f5e9,stroke:#388e3c,stroke-width:2px
+    classDef tool fill:#fff3e0,stroke:#f57c00,stroke-width:2px
+    classDef flow fill:#fce4ec,stroke:#c2185b,stroke-width:2px
+    classDef data fill:#f1f8e9,stroke:#689f38,stroke-width:2px
+
+    class META,GHL,CAL external
+    class EP,API,HANDLER,CM processing
+    class AGENT,STATE agent
+    class T1,T2,T3,T4,T5 tool
+    class S1,S2,S3,S4,S5,S6,S7 flow
+    class UPDATE_DATA data

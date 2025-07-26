@@ -1,0 +1,511 @@
+openapi: 3.0.3
+info:
+  title: Outlet Media Bot API
+  description: |
+    LangGraph-based sales agent that qualifies leads from Meta ads through GHL webhooks via WhatsApp.
+    The agent conducts natural conversations to gather information and books appointments for qualified leads.
+  version: 3.0.0
+  contact:
+    name: Outlet Media Support
+    email: support@outletmedia.com
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+
+servers:
+  - url: https://outletbot-{deploymentId}.us.langgraph.app
+    description: LangGraph Platform Production
+    variables:
+      deploymentId:
+        default: production
+        description: Deployment identifier assigned by LangGraph Platform
+  - url: http://localhost:3000
+    description: Local Development
+
+tags:
+  - name: Webhook
+    description: Lead processing webhook endpoints
+  - name: Health
+    description: Health check and monitoring endpoints
+  - name: Metrics
+    description: Application metrics and statistics
+
+paths:
+  /webhook/meta-lead:
+    post:
+      tags:
+        - Webhook
+      summary: Process Meta lead webhook
+      description: |
+        Receives webhook notifications from GoHighLevel when a new WhatsApp message is received.
+        The endpoint processes the message through the sales agent workflow, which:
+        - Extracts lead information
+        - Manages conversation state
+        - Sends responses via GHL WhatsApp API
+        - Books appointments for qualified leads
+      operationId: processMetaLead
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WebhookRequest'
+            examples:
+              newMessage:
+                summary: New customer message
+                value:
+                  phone: "+1234567890"
+                  message: "Hola, necesito ayuda con marketing"
+                  contactId: "8eSdb9ZDsXDem9wlED9u"
+                  conversationId: "conv_12345"
+                  timestamp: "2025-01-26T10:30:00Z"
+      responses:
+        '200':
+          description: Webhook processed successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookResponse'
+              examples:
+                success:
+                  value:
+                    success: true
+                    message: "Webhook processed successfully"
+                    contactId: "8eSdb9ZDsXDem9wlED9u"
+                    messageCount: 2
+                    processingTime: 1523
+                duplicate:
+                  value:
+                    success: true
+                    message: "Duplicate message ignored"
+                    contactId: "8eSdb9ZDsXDem9wlED9u"
+                alreadyProcessing:
+                  value:
+                    success: true
+                    message: "Already processing"
+                    contactId: "8eSdb9ZDsXDem9wlED9u"
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                validationError:
+                  value:
+                    error: "Validation failed"
+                    code: "VALIDATION_ERROR"
+                    timestamp: "2025-01-26T10:30:00Z"
+                    validation:
+                      - field: "phone"
+                        message: "Invalid phone number format"
+        '429':
+          description: Rate limit exceeded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RateLimitError'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: Service temporarily unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+      security:
+        - ApiKeyAuth: []
+      x-rate-limit:
+        global: 100 requests per minute
+        per-contact: 10 requests per minute
+        per-phone: 20 requests per 5 minutes
+
+  /health:
+    get:
+      tags:
+        - Health
+      summary: Health check endpoint
+      description: |
+        Comprehensive health check that validates:
+        - Application status
+        - OpenAI API connectivity
+        - GHL API connectivity
+        - Checkpointer functionality
+        - System resources
+      operationId: healthCheck
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+        '503':
+          description: Service is unhealthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+      x-rate-limit:
+        global: 60 requests per minute
+
+  /metrics:
+    get:
+      tags:
+        - Metrics
+      summary: Get application metrics
+      description: |
+        Returns comprehensive metrics including:
+        - API request statistics
+        - Business metrics (conversations, leads, appointments)
+        - Tool execution metrics
+        - GHL API performance
+        - System resource usage
+      operationId: getMetrics
+      responses:
+        '200':
+          description: Metrics retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MetricsResponse'
+      security:
+        - ApiKeyAuth: []
+
+components:
+  schemas:
+    WebhookRequest:
+      type: object
+      required:
+        - phone
+        - message
+        - contactId
+      properties:
+        phone:
+          type: string
+          pattern: '^\+?[1-9]\d{1,14}$'
+          description: Phone number in E.164 format
+          example: "+1234567890"
+        message:
+          type: string
+          minLength: 1
+          maxLength: 5000
+          description: Customer's WhatsApp message
+          example: "Hola, necesito ayuda con marketing"
+        contactId:
+          type: string
+          minLength: 1
+          maxLength: 50
+          description: GHL contact identifier
+          example: "8eSdb9ZDsXDem9wlED9u"
+        conversationId:
+          type: string
+          description: GHL conversation identifier
+          example: "conv_12345"
+        timestamp:
+          type: string
+          format: date-time
+          description: Message timestamp
+        locationId:
+          type: string
+          description: GHL location identifier
+
+    WebhookResponse:
+      type: object
+      required:
+        - success
+        - message
+        - contactId
+      properties:
+        success:
+          type: boolean
+          description: Whether the webhook was processed successfully
+        message:
+          type: string
+          description: Processing status message
+        contactId:
+          type: string
+          description: GHL contact identifier
+        messageCount:
+          type: integer
+          description: Number of messages in the conversation
+        processingTime:
+          type: integer
+          description: Processing time in milliseconds
+
+    HealthResponse:
+      type: object
+      required:
+        - status
+        - timestamp
+        - version
+        - checks
+      properties:
+        status:
+          type: string
+          enum: [healthy, degraded, unhealthy]
+          description: Overall health status
+        timestamp:
+          type: string
+          format: date-time
+        version:
+          type: string
+          description: Application version
+        uptime:
+          type: integer
+          description: Uptime in seconds
+        checks:
+          type: object
+          properties:
+            openai:
+              $ref: '#/components/schemas/HealthCheck'
+            ghl:
+              $ref: '#/components/schemas/HealthCheck'
+            checkpointer:
+              $ref: '#/components/schemas/HealthCheck'
+        system:
+          type: object
+          properties:
+            memory:
+              type: object
+              properties:
+                used:
+                  type: string
+                  example: "128 MB"
+                total:
+                  type: string
+                  example: "1024 MB"
+            cpu:
+              type: object
+              properties:
+                usage:
+                  type: string
+                  example: "15%"
+
+    HealthCheck:
+      type: object
+      required:
+        - status
+        - latency
+      properties:
+        status:
+          type: string
+          enum: [healthy, unhealthy]
+        latency:
+          type: string
+          example: "123ms"
+        error:
+          type: string
+          description: Error message if unhealthy
+
+    MetricsResponse:
+      type: object
+      required:
+        - timestamp
+        - uptime
+        - api
+        - business
+        - tools
+        - ghl
+        - system
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+        uptime:
+          type: integer
+          description: Uptime in seconds
+        api:
+          type: object
+          properties:
+            totalRequests:
+              type: integer
+            totalErrors:
+              type: integer
+            errorRate:
+              type: string
+              example: "0.5%"
+            avgLatency:
+              type: string
+              example: "123ms"
+            endpoints:
+              type: object
+              additionalProperties:
+                type: integer
+        business:
+          type: object
+          properties:
+            conversationsStarted:
+              type: integer
+            conversationsCompleted:
+              type: integer
+            qualifiedLeads:
+              type: integer
+            appointmentsBooked:
+              type: integer
+            underBudgetLeads:
+              type: integer
+            conversionRate:
+              type: string
+              example: "25.5%"
+            bookingRate:
+              type: string
+              example: "80.0%"
+        tools:
+          type: object
+          additionalProperties:
+            type: object
+            properties:
+              executions:
+                type: integer
+              errors:
+                type: integer
+              errorRate:
+                type: number
+              avgLatency:
+                type: integer
+        ghl:
+          type: object
+          properties:
+            totalCalls:
+              type: integer
+            totalErrors:
+              type: integer
+            circuitBreakerTrips:
+              type: integer
+            endpoints:
+              type: object
+              additionalProperties:
+                type: integer
+        system:
+          type: object
+          properties:
+            memory:
+              type: object
+              properties:
+                rss:
+                  type: string
+                  example: "256 MB"
+                heapUsed:
+                  type: string
+                  example: "128 MB"
+                heapTotal:
+                  type: string
+                  example: "512 MB"
+
+    ErrorResponse:
+      type: object
+      required:
+        - error
+        - code
+        - timestamp
+      properties:
+        error:
+          type: string
+          description: Error message
+        code:
+          type: string
+          description: Error code
+          enum: 
+            - VALIDATION_ERROR
+            - INTERNAL_ERROR
+            - SERVICE_UNAVAILABLE
+            - METHOD_NOT_ALLOWED
+            - NOT_FOUND
+        timestamp:
+          type: string
+          format: date-time
+        message:
+          type: string
+          description: Additional error details
+        validation:
+          type: array
+          description: Validation errors (only for VALIDATION_ERROR)
+          items:
+            type: object
+            properties:
+              field:
+                type: string
+              message:
+                type: string
+
+    RateLimitError:
+      allOf:
+        - $ref: '#/components/schemas/ErrorResponse'
+        - type: object
+          required:
+            - retryAfter
+          properties:
+            code:
+              type: string
+              enum: [RATE_LIMIT_EXCEEDED]
+            retryAfter:
+              type: integer
+              description: Seconds to wait before retrying
+
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: API key for authentication (optional for development)
+
+  responses:
+    BadRequest:
+      description: Bad request
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    
+    RateLimitExceeded:
+      description: Rate limit exceeded
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/RateLimitError'
+      headers:
+        X-RateLimit-Limit:
+          schema:
+            type: integer
+          description: Request limit per window
+        X-RateLimit-Remaining:
+          schema:
+            type: integer
+          description: Remaining requests in window
+        X-RateLimit-Reset:
+          schema:
+            type: string
+            format: date-time
+          description: Time when the rate limit resets
+        Retry-After:
+          schema:
+            type: integer
+          description: Seconds to wait before retrying
+    
+    InternalError:
+      description: Internal server error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    
+    ServiceUnavailable:
+      description: Service temporarily unavailable
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
+x-readme:
+  explorer-enabled: true
+  proxy-enabled: true
+  samples-languages:
+    - javascript
+    - python
+    - curl
+    - node

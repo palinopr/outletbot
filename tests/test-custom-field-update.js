@@ -1,5 +1,5 @@
 // Test updating contact with custom fields
-import { GHLService } from './services/ghlService.js';
+import { GHLService } from '../services/ghlService.js';
 import dotenv from 'dotenv';
 
 dotenv.config();

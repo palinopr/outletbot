@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 import 'dotenv/config';
-import { tools } from './agents/salesAgent.js';
-import { GHLService } from './services/ghlService.js';
+import { exportedTools as tools } from '../agents/salesAgent.js';
+import { GHLService } from '../services/ghlService.js';
 import { ChatOpenAI } from '@langchain/openai';
 import { SystemMessage } from '@langchain/core/messages';
-import ConversationManager from './services/conversationManager.js';
+import ConversationManager from '../services/conversationManager.js';
 
 console.log('🧪 Testing Outlet Media Bot Components\n');
 

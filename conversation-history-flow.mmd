@@ -1,0 +1,54 @@
+%% How AI Maintains Conversation History
+%% Copy this to https://www.mermaidchart.com/
+
+graph TB
+    subgraph "🔄 How AI Gets Conversation History"
+        START[New Message Arrives] --> W1[webhookHandler.js]
+        
+        W1 --> CM["<b>ConversationManager.getConversationState()</b><br/>Lines 12-88"]
+        
+        CM --> API1["<b>1. Find/Create Conversation</b><br/>ghlService.getOrCreateConversation()<br/>Uses contactId + phone"]
+        
+        API1 --> API2["<b>2. Fetch Message History</b><br/>ghlService.getConversationMessages()<br/>GET /conversations/{id}/messages"]
+        
+        API2 --> RESP["<b>GHL Returns:</b><br/>response.data.messages.messages[]<br/>• direction: 'inbound'/'outbound'<br/>• body: message text<br/>• dateAdded: timestamp"]
+        
+        RESP --> FILTER["<b>3. Filter Messages</b><br/>convertGHLMessages() - Line 91<br/>• Skip JSON tool responses<br/>• Skip {success:true} etc<br/>• Keep only real messages"]
+        
+        FILTER --> CONVERT["<b>4. Convert to LangChain Format</b><br/>• inbound → HumanMessage<br/>• outbound → AIMessage<br/>• Sort by dateAdded"]
+        
+        CONVERT --> BUILD["<b>5. Build Complete State</b><br/>{<br/>  messages: [...history],<br/>  leadInfo: {...extracted},<br/>  contactId,<br/>  conversationId<br/>}"]
+    end
+
+    subgraph "📚 Example: 3-Message History"
+        EX1["<b>From GHL:</b><br/>[<br/>  {direction: 'inbound', body: 'Hola'},<br/>  {direction: 'outbound', body: '¿Cuál es tu nombre?'},<br/>  {direction: 'outbound', body: '{success: true}'}, ❌<br/>  {direction: 'inbound', body: 'Soy Jaime'}<br/>]"]
+        
+        EX1 --> EX2["<b>After Filtering:</b><br/>[<br/>  HumanMessage('Hola'),<br/>  AIMessage('¿Cuál es tu nombre?'),<br/>  HumanMessage('Soy Jaime')<br/>]"]
+        
+        EX2 --> EX3["<b>Agent Receives:</b><br/>messages: [3 previous messages]<br/>+ new HumanMessage('current message')<br/>= 4 total messages"]
+    end
+
+    subgraph "🧠 How Agent Uses History"
+        BUILD --> AGENT["<b>salesAgent.js</b><br/>Lines 122-125"]
+        
+        AGENT --> A1["<b>Agent gets:</b><br/>• All previous messages<br/>• Current leadInfo state<br/>• New customer message"]
+        
+        A1 --> A2["<b>stateModifier adds context:</b><br/>Lines 589-622<br/>• Enhances prompt with leadInfo<br/>• Shows what's already known<br/>• Determines current stage"]
+        
+        A2 --> A3["<b>LLM sees full context:</b><br/>'You already know:<br/>- Name: Jaime<br/>- Problem: needs customers<br/>CURRENT STAGE: Ask about GOAL'"]
+    end
+
+    subgraph "💾 Persistence"
+        P1["<b>Every customer message:</b><br/>1. Fetch all history from GHL<br/>2. Add new message<br/>3. Process with full context<br/>4. Save response back to GHL"]
+        
+        P1 --> P2["<b>Result:</b><br/>Complete conversation history<br/>maintained in GHL database"]
+    end
+
+    BUILD --> P1
+    AGENT --> P1
+
+    style W1 fill:#e8f5e9
+    style CM fill:#fff3e0
+    style AGENT fill:#e8f5e9
+    style FILTER fill:#ffebee
+    style P2 fill:#c8e6c9

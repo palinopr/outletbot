@@ -1,5 +1,5 @@
 // Test the updated webhook handler with proper state management
-import { graph } from './agents/webhookHandler.js';
+import { graph } from '../agents/webhookHandler.js';
 import { HumanMessage } from '@langchain/core/messages';
 import dotenv from 'dotenv';
 

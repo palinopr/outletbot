@@ -3,93 +3,113 @@ import { tool } from "@langchain/core/tools";
 import { z } from "zod";
 import { ChatOpenAI } from "@langchain/openai";
 import { SystemMessage } from "@langchain/core/messages";
-import { getCurrentTaskInput, Annotation, MessagesAnnotation } from '@langchain/langgraph';
+import { getCurrentTaskInput, Annotation, MessagesAnnotation, MemorySaver } from '@langchain/langgraph';
+import { Logger } from '../services/logger.js';
+import { config } from '../services/config.js';
+import { metrics } from '../services/monitoring.js';
+import { featureFlags, FLAGS } from '../services/featureFlags.js';
+
+// Initialize logger
+const logger = new Logger('salesAgent');
+
+// Initialize checkpointer for conversation persistence (if enabled)
+const checkpointer = featureFlags.isEnabled(FLAGS.USE_MEMORY_SAVER) 
+  ? new MemorySaver() 
+  : null;
 
 // Agent configuration with timeout and retry handling
 const AGENT_CONFIG = {
-  conversationTimeout: 300000, // 5 minutes total
+  conversationTimeout: config.conversationTimeout,
   retryConfig: {
-    maxRetries: 3,
-    retryDelay: 1000,
+    maxRetries: config.maxRetries,
+    retryDelay: config.retryDelay,
     retryMultiplier: 2,
     retryableErrors: ['CancelledError', 'TimeoutError', 'ECONNRESET', 'ETIMEDOUT']
   }
 };
 
-// Import getCurrentTaskInput for accessing state in tools
-import { getCurrentTaskInput } from '@langchain/langgraph';
-
 // Tool: Extract lead information from messages
 const extractLeadInfo = tool(
   async ({ message }, config) => {
-    const llm = new ChatOpenAI({ model: "gpt-4", temperature: 0 });
-    
-    // Access the current state to get existing leadInfo
-    let currentState;
+    const startTime = Date.now();
     try {
-      currentState = getCurrentTaskInput();
-    } catch (e) {
-      // If getCurrentTaskInput fails, we're not in a graph context
-      currentState = null;
-    }
-    
-    const existingLeadInfo = currentState?.leadInfo || config?.configurable?.currentLeadInfo || {};
-    
-    // Build currentInfo from state, not from tool input
-    const currentInfo = {
-      name: existingLeadInfo.name || "",
-      businessType: existingLeadInfo.businessType || "",
-      problem: existingLeadInfo.problem || "",
-      goal: existingLeadInfo.goal || "",
-      budget: existingLeadInfo.budget || 0,
-      email: existingLeadInfo.email || "",
-      businessDetails: existingLeadInfo.businessDetails || ""
-    };
-    
-    console.log('Extract lead info - Current context:', currentInfo);
-    
-    const prompt = `Analyze this customer message and extract any information provided:
-    Message: "${message}"
-    
-    Current info we already have: ${JSON.stringify(currentInfo)}
-    
-    Extract any NEW information (if mentioned):
-    - Name
-    - BusinessType (restaurant, store, clinic, salon, etc)
-    - Problem/Pain point
-    - Goal
-    - Budget (IMPORTANT: Look for numbers with "mes", "mensual", "al mes", "por mes", "$". Examples: "500 al mes" = 500, "$1000 mensual" = 1000)
-    - Email
-    - Any specific details about their business
-    
-    For budget, if you see a number followed by any monthly indicator, extract just the number.
-    
-    Return ONLY a JSON object with any new/updated fields. Do NOT include fields that haven't changed.
-    Example: If current name is "Jaime" and message doesn't mention a different name, don't include "name" in response.`;
-    
-    const response = await llm.invoke([
-      new SystemMessage("You extract information from messages. Return only valid JSON with ONLY new/changed fields."),
-      { role: "user", content: prompt }
-    ]);
-    
-    try {
-      const extracted = JSON.parse(response.content);
+      const llm = new ChatOpenAI({ model: "gpt-4", temperature: 0 });
       
-      // Merge with existing info
-      const merged = { ...currentInfo };
-      Object.keys(extracted).forEach(key => {
-        if (extracted[key] !== null && extracted[key] !== undefined && extracted[key] !== "") {
-          merged[key] = extracted[key];
-        }
-      });
+      // Access the current state to get existing leadInfo
+      let currentState;
+      try {
+        currentState = getCurrentTaskInput();
+      } catch (e) {
+        // If getCurrentTaskInput fails, we're not in a graph context
+        currentState = null;
+      }
+    
+      const existingLeadInfo = currentState?.leadInfo || config?.configurable?.currentLeadInfo || {};
       
-      console.log('Extracted new info:', extracted);
-      console.log('Merged lead info:', merged);
+      // Build currentInfo from state, not from tool input
+      const currentInfo = {
+        name: existingLeadInfo.name || "",
+        businessType: existingLeadInfo.businessType || "",
+        problem: existingLeadInfo.problem || "",
+        goal: existingLeadInfo.goal || "",
+        budget: existingLeadInfo.budget || 0,
+        email: existingLeadInfo.email || "",
+        businessDetails: existingLeadInfo.businessDetails || ""
+      };
       
-      return merged;
-    } catch (e) {
-      console.error('Failed to parse extraction response:', e);
-      return currentInfo; // Return existing info if extraction fails
+      logger.debug('Extract lead info - Current context', { currentInfo });
+      
+      const prompt = `Analyze this customer message and extract any information provided:
+      Message: "${message}"
+      
+      Current info we already have: ${JSON.stringify(currentInfo)}
+      
+      Extract any NEW information (if mentioned):
+      - Name
+      - BusinessType (restaurant, store, clinic, salon, etc)
+      - Problem/Pain point
+      - Goal
+      - Budget (IMPORTANT: Look for numbers with "mes", "mensual", "al mes", "por mes", "$". Examples: "500 al mes" = 500, "$1000 mensual" = 1000)
+      - Email
+      - Any specific details about their business
+      
+      For budget, if you see a number followed by any monthly indicator, extract just the number.
+      
+      Return ONLY a JSON object with any new/updated fields. Do NOT include fields that haven't changed.
+      Example: If current name is "Jaime" and message doesn't mention a different name, don't include "name" in response.`;
+      
+      const response = await llm.invoke([
+        new SystemMessage("You extract information from messages. Return only valid JSON with ONLY new/changed fields."),
+        { role: "user", content: prompt }
+      ]);
+      
+      try {
+        const extracted = JSON.parse(response.content);
+        
+        // Merge with existing info
+        const merged = { ...currentInfo };
+        Object.keys(extracted).forEach(key => {
+          if (extracted[key] !== null && extracted[key] !== undefined && extracted[key] !== "") {
+            merged[key] = extracted[key];
+          }
+        });
+        
+        logger.debug('Lead info extraction', {
+          extractedInfo: extracted,
+          mergedInfo: merged
+        });
+        
+        return merged;
+      } catch (e) {
+        logger.error('Failed to parse extraction response', { 
+          error: e.message,
+          response: response.content 
+        });
+        return currentInfo; // Return existing info if extraction fails
+      }
+    } catch (error) {
+      logger.error('Error in extractLeadInfo tool', { error: error.message });
+      return config?.configurable?.currentLeadInfo || {};
     }
   },
   {
@@ -199,7 +219,12 @@ const getCalendarSlots = tool(
         })
       };
     } catch (error) {
-      console.error("Error fetching calendar slots:", error);
+      logger.error("Error fetching calendar slots", {
+        error: error.message,
+        calendarId,
+        startDate: start,
+        endDate: end
+      });
       return { error: error.message, slots: [] };
     }
   },
@@ -260,7 +285,12 @@ const bookAppointment = tool(
         confirmationMessage: `¡Perfecto! Tu cita está confirmada para ${slot.display}. Te enviaré un recordatorio antes de nuestra llamada.`
       };
     } catch (error) {
-      console.error("Error booking appointment:", error);
+      logger.error("Error booking appointment", {
+        error: error.message,
+        contactId,
+        calendarId,
+        slot
+      });
       return {
         success: false,
         error: error.message
@@ -340,7 +370,13 @@ const updateGHLContact = tool(
       
       return { success: true, updated: { tags, notes: !!notes, leadInfo: !!leadInfo } };
     } catch (error) {
-      console.error("Error updating GHL contact:", error);
+      logger.error("Error updating GHL contact", {
+        error: error.message,
+        contactId,
+        tags,
+        hasNotes: !!notes,
+        hasLeadInfo: !!leadInfo
+      });
       return { success: false, error: error.message };
     }
   },
@@ -443,7 +479,11 @@ const sendGHLMessage = tool(
         timestamp: new Date().toISOString()
       };
     } catch (error) {
-      console.error("Error sending GHL message:", error);
+      logger.error("Error sending GHL message", {
+        error: error.message,
+        contactId,
+        messageLength: message.length
+      });
       return {
         success: false,
         error: error.message
@@ -559,11 +599,18 @@ IMPORTANT TOOL USAGE ON EVERY MESSAGE:
 2. SECOND: Use extract_lead_info tool to analyze the customer message
    - The tool will automatically access current state and merge with new info
    - You only need to pass the message, NOT currentInfo
-3. THIRD: Use send_ghl_message to respond based on what info is still missing
-4. FOURTH: Use update_ghl_contact to:
-   - Add tags if new information discovered
-   - Update custom fields with the merged leadInfo from extract_lead_info
-   - Add a note summarizing this interaction
+3. THIRD & FOURTH (PARALLEL): Execute these tools TOGETHER in the same response:
+   - send_ghl_message to respond based on what info is still missing
+   - update_ghl_contact to update tags, fields, and notes
+   
+⚡ PARALLEL EXECUTION: Always call send_ghl_message and update_ghl_contact in the SAME tool block.
+This reduces response time from ~3s to ~1.5s by not waiting for each tool sequentially.
+
+EXAMPLE PARALLEL EXECUTION:
+1. extract_lead_info({ message: "Soy Jaime, tengo un restaurante" })
+2. [PARALLEL TOOLS]:
+   - send_ghl_message({ message: "Hola Jaime! ¿Qué problema tienes con tu restaurante?" })
+   - update_ghl_contact({ tags: ["name-collected"], leadInfo: {...}, notes: "..." })
 
 CRITICAL: When calling extract_lead_info, pass ONLY the message:
 ✅ CORRECT: extract_lead_info({ message: "customer text" })
@@ -661,6 +708,7 @@ const modelWithTools = llm.bindTools(tools);
 export const graph = createReactAgent({
   llm: modelWithTools,
   tools: tools,
+  checkpointSaver: checkpointer, // Enable conversation persistence
   stateSchema: AgentStateAnnotation, // Use custom state schema
   stateModifier: (state) => {
     // Add current lead info to the prompt if available
@@ -708,19 +756,28 @@ export const graph = createReactAgent({
 });
 
 // Enhanced sales agent with error recovery
-export async function salesAgent(input, config) {
-  // console.log('Agent invoked with input:', JSON.stringify(input, null, 2));
-  console.log(`Agent received ${input.messages?.length || 0} messages in conversation history`);
-  console.log('Current leadInfo state:', input.leadInfo || 'No leadInfo');
+export async function salesAgent(input, agentConfig) {
+  logger.info('Agent invoked', {
+    messageCount: input.messages?.length || 0,
+    hasLeadInfo: !!input.leadInfo,
+    leadInfo: input.leadInfo || 'No leadInfo'
+  });
   
   const startTime = Date.now();
   
-  // Enhanced config with timeout tracking
+  // Track conversation start
+  if (!input.isResume) {
+    metrics.recordConversationStarted();
+  }
+  
+  // Enhanced config with timeout tracking and thread_id for checkpointing
   const enhancedConfig = {
-    ...config,
+    ...agentConfig,
     configurable: {
-      ...config?.configurable,
-      contactId: input.contactId || config?.configurable?.contactId,
+      ...agentConfig?.configurable,
+      contactId: input.contactId || agentConfig?.configurable?.contactId,
+      // Use contactId as thread_id for conversation persistence
+      thread_id: input.contactId || agentConfig?.configurable?.contactId || 'default',
       conversationStartTime: startTime,
       agentConfig: AGENT_CONFIG,
       currentLeadInfo: input.leadInfo || {} // Pass leadInfo through config for tools
@@ -744,11 +801,18 @@ export async function salesAgent(input, config) {
       conversationTimeoutPromise
     ]);
     
-    console.log(`Conversation completed in ${Date.now() - startTime}ms`);
+    logger.info('Conversation completed', {
+      duration: Date.now() - startTime,
+      messageCount: result.messages?.length || 0
+    });
     return result;
     
   } catch (error) {
-    console.error('Agent error:', error);
+    logger.error('Agent error', {
+      error: error.message,
+      stack: error.stack,
+      duration: Date.now() - startTime
+    });
     
     // Handle specific error types
     if (error.message === 'Conversation timeout exceeded') {
@@ -765,7 +829,7 @@ export async function salesAgent(input, config) {
     
     // Handle cancellation errors
     if (error.name === 'CancelledError' || error.message.includes('cancelled')) {
-      console.log('Operation was cancelled - likely due to platform restart');
+      logger.warn('Operation was cancelled - likely due to platform restart');
       return {
         messages: [
           ...input.messages,

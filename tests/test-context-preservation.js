@@ -1,5 +1,5 @@
 // Test script to verify context preservation after fixes
-import { salesAgent } from './agents/salesAgent.js';
+import { salesAgent } from '../agents/salesAgent.js';
 import { HumanMessage, AIMessage } from '@langchain/core/messages';
 import dotenv from 'dotenv';
 

@@ -1,6 +1,6 @@
 // Test that bot adds notes after each interaction
-import { graph } from './agents/salesAgent.js';
-import { GHLService } from './services/ghlService.js';
+import { graph } from '../agents/salesAgent.js';
+import { GHLService } from '../services/ghlService.js';
 import { HumanMessage } from '@langchain/core/messages';
 import dotenv from 'dotenv';
 

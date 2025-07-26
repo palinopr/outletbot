@@ -2,16 +2,21 @@ import { salesAgent } from './salesAgent.js';
 import { GHLService, formatPhoneNumber } from '../services/ghlService.js';
 import ConversationManager from '../services/conversationManager.js';
 import { HumanMessage } from '@langchain/core/messages';
-import { StateGraph, MessagesAnnotation, Annotation, END } from '@langchain/langgraph';
+import { StateGraph, MessagesAnnotation, Annotation, END, START } from '@langchain/langgraph';
 import crypto from 'crypto';
+import { Logger } from '../services/logger.js';
+import { config } from '../services/config.js';
+
+// Initialize logger
+const logger = new Logger('webhookHandler');
 
 // Initialize services with lazy loading
 let ghlService;
 let conversationManager;
 
-// Message deduplication cache (10 minute TTL)
+// Message deduplication cache
 const processedMessages = new Map();
-const MESSAGE_CACHE_TTL = 10 * 60 * 1000; // 10 minutes
+const MESSAGE_CACHE_TTL = config.features.enableDeduplication ? 10 * 60 * 1000 : 0; // 10 minutes if enabled
 
 // Clean up old entries periodically
 setInterval(() => {
@@ -23,7 +28,10 @@ setInterval(() => {
   }
 }, MESSAGE_CACHE_TTL / 2);
 
-// Health check for services
+/**
+ * Health check for GHL services
+ * @returns {Promise<boolean>} True if services are healthy, false otherwise
+ */
 async function healthCheck() {
   try {
     if (ghlService) {
@@ -32,12 +40,17 @@ async function healthCheck() {
     }
     return false;
   } catch (error) {
-    console.error('Health check failed:', error);
+    logger.error('Health check failed', { error: error.message });
     return false;
   }
 }
 
-// Initialize with retry logic
+/**
+ * Initialize GHL services with retry logic
+ * @param {number} retries - Number of retry attempts (default: 3)
+ * @throws {Error} If initialization fails after all retries
+ * @returns {Promise<void>}
+ */
 async function initialize(retries = 3) {
   if (!ghlService) {
     for (let i = 0; i < retries; i++) {
@@ -51,10 +64,13 @@ async function initialize(retries = 3) {
         
         // Verify initialization
         await healthCheck();
-        console.log('Services initialized successfully');
+        logger.info('Services initialized successfully');
         break;
       } catch (error) {
-        console.error(`Initialization attempt ${i + 1} failed:`, error);
+        logger.error(`Initialization attempt ${i + 1} failed`, { 
+          error: error.message,
+          attempt: i + 1 
+        });
         if (i === retries - 1) throw error;
         await new Promise(resolve => setTimeout(resolve, 1000 * (i + 1)));
       }
@@ -62,7 +78,16 @@ async function initialize(retries = 3) {
   }
 }
 
-// Enhanced webhook handler following LangGraph best practices
+/**
+ * Webhook handler node for processing incoming messages
+ * Follows LangGraph best practices with state management
+ * @param {Object} state - Current graph state
+ * @param {Array} state.messages - Message history
+ * @param {string} state.contactId - GHL contact identifier
+ * @param {string} state.phone - Contact phone number
+ * @param {Object} config - Node configuration
+ * @returns {Promise<Object>} Updated state with processed messages
+ */
 async function webhookHandlerNode(state, config) {
   const startTime = Date.now();
   
@@ -99,13 +124,15 @@ async function webhookHandlerNode(state, config) {
     .digest('hex');
   
   // Check if we've already processed this exact message recently
-  if (processedMessages.has(messageHash)) {
+  const enableDeduplication = config?.configurable?.features?.enableDeduplication ?? true;
+  if (enableDeduplication && processedMessages.has(messageHash)) {
     const processedTime = processedMessages.get(messageHash);
     const timeSince = Date.now() - processedTime;
-    console.log(`Duplicate message detected (processed ${timeSince}ms ago), skipping:`, {
+    logger.info('Duplicate message detected, skipping', {
       contactId,
       messagePreview: message.substring(0, 30) + '...',
-      hash: messageHash
+      hash: messageHash,
+      timeSinceProcessed: timeSince
     });
     
     // Return empty state to indicate no processing needed
@@ -116,12 +143,14 @@ async function webhookHandlerNode(state, config) {
   }
   
   // Mark message as processed
-  processedMessages.set(messageHash, Date.now());
+  if (enableDeduplication) {
+    processedMessages.set(messageHash, Date.now());
+  }
   
-  console.log('Webhook received:', { 
+  logger.info('Webhook received', { 
     contactId, 
     phone,
-    message: message.substring(0, 50) + '...',
+    messagePreview: message.substring(0, 50) + '...',
     timestamp: new Date().toISOString(),
     hash: messageHash
   });
@@ -134,7 +163,7 @@ async function webhookHandlerNode(state, config) {
   );
   
   const conversationTimeoutPromise = new Promise((_, reject) => {
-    setTimeout(() => reject(new Error('Conversation fetch timeout')), 10000);
+    setTimeout(() => reject(new Error('Conversation fetch timeout')), config.apiTimeout);
   });
   
   let conversationState;
@@ -144,7 +173,10 @@ async function webhookHandlerNode(state, config) {
       conversationTimeoutPromise
     ]);
   } catch (error) {
-    console.error('Failed to fetch conversation state:', error);
+    logger.error('Failed to fetch conversation state', { 
+      error: error.message,
+      contactId 
+    });
     // Use minimal state if fetch fails
     conversationState = {
       messages: [],
@@ -165,7 +197,11 @@ async function webhookHandlerNode(state, config) {
     new HumanMessage(message)
   ];
   
-  console.log(`Passing ${agentMessages.length} total messages to agent (${conversationState.messages.length} from history + 1 new)`);
+  logger.info('Passing messages to agent', {
+    totalMessages: agentMessages.length,
+    historyMessages: conversationState.messages.length,
+    newMessages: 1
+  });
   
   // Extract current lead info for context
   const currentLeadInfo = {
@@ -201,7 +237,10 @@ async function webhookHandlerNode(state, config) {
     conversationManager.clearCache(contactId, conversationState.conversationId);
   });
   
-  console.log(`Webhook processed in ${Date.now() - startTime}ms`);
+  logger.info('Webhook processed successfully', {
+    processingTime: Date.now() - startTime,
+    contactId
+  });
   
   // Return updated state with messages following MessagesAnnotation pattern
   return {
@@ -212,7 +251,11 @@ async function webhookHandlerNode(state, config) {
   };
   
   } catch (error) {
-    console.error('Webhook handler error:', error);
+    logger.error('Webhook handler error', {
+      error: error.message,
+      stack: error.stack,
+      contactId: state.contactId
+    });
     
     // Return user-friendly error message
     const errorMessage = error.name === 'CancelledError' || error.message.includes('cancelled')
@@ -248,6 +291,6 @@ const WebhookAnnotation = Annotation.Root({
 // Create the webhook handler graph with proper state management
 export const graph = new StateGraph(WebhookAnnotation)
   .addNode('webhook_handler', webhookHandlerNode)
-  .addEdge('__start__', 'webhook_handler')
+  .addEdge(START, 'webhook_handler')
   .addEdge('webhook_handler', END)
   .compile();

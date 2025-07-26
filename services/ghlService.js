@@ -1,10 +1,87 @@
 import axios from 'axios';
+import http from 'http';
+import https from 'https';
+import { config } from './config.js';
+import { Logger } from './logger.js';
+import { metrics } from './monitoring.js';
+
+// Retry configuration
+const RETRY_CONFIG = {
+  maxRetries: config.maxRetries,
+  retryDelay: config.retryDelay,
+  retryMultiplier: 2, // exponential backoff
+  retryableErrors: ['ECONNRESET', 'ETIMEDOUT', 'ECONNABORTED', 'ENOTFOUND'],
+  retryableStatusCodes: [408, 429, 500, 502, 503, 504]
+};
+
+// Circuit breaker configuration
+const CIRCUIT_BREAKER = {
+  failureThreshold: 5,
+  resetTimeout: 60000, // 1 minute
+  halfOpenRequests: 3,
+  enabled: config.features.enableCircuitBreaker
+};
+
+// Connection pooling configuration
+const httpAgent = new http.Agent({
+  keepAlive: true,
+  keepAliveMsecs: 1000,
+  maxSockets: 50,          // Max concurrent connections
+  maxFreeSockets: 10,      // Max idle connections
+  timeout: 60000,          // Socket timeout
+  scheduling: 'lifo'       // Last-in-first-out for better connection reuse
+});
+
+const httpsAgent = new https.Agent({
+  keepAlive: true,
+  keepAliveMsecs: 1000,
+  maxSockets: 50,
+  maxFreeSockets: 10,
+  timeout: 60000,
+  scheduling: 'lifo',
+  rejectUnauthorized: true // SSL certificate validation
+});
 
 export class GHLService {
   constructor(apiKey, locationId) {
     this.apiKey = apiKey;
     this.locationId = locationId;
     this.baseURL = 'https://services.leadconnectorhq.com';
+    this.logger = new Logger('GHLService');
+    
+    // Initialize circuit breaker state
+    this.circuitBreaker = {
+      failures: 0,
+      lastFailureTime: null,
+      state: 'closed', // closed, open, half-open
+      halfOpenRequests: 0
+    };
+    
+    // Queue for failed messages to retry later
+    this.retryQueue = [];
+    
+    // Create axios instance with default config and connection pooling
+    this.client = axios.create({
+      baseURL: this.baseURL,
+      timeout: config.apiTimeout,
+      headers: this.getHeaders(),
+      httpAgent: httpAgent,
+      httpsAgent: httpsAgent,
+      maxRedirects: 5,
+      validateStatus: (status) => status < 500 // Don't throw on 4xx errors
+    });
+    
+    // Add request interceptor for circuit breaker
+    this.client.interceptors.request.use(
+      (config) => this.circuitBreakerInterceptor(config),
+      (error) => Promise.reject(error)
+    );
+    
+    // Add response interceptor for retry logic
+    this.client.interceptors.response.use(
+      (response) => response,
+      async (error) => this.retryInterceptor(error)
+    );
   }
 
   // Helper to add minutes to a time string
@@ -22,6 +99,203 @@ export class GHLService {
       'Version': '2021-07-28' // Required by GHL API
     };
   }
+  
+  // Circuit breaker interceptor
+  circuitBreakerInterceptor(config) {
+    const { state, failures, lastFailureTime } = this.circuitBreaker;
+    
+    // Check if circuit is open
+    if (state === 'open') {
+      const timeSinceLastFailure = Date.now() - lastFailureTime;
+      
+      // Check if we should move to half-open
+      if (timeSinceLastFailure > CIRCUIT_BREAKER.resetTimeout) {
+        this.circuitBreaker.state = 'half-open';
+        this.circuitBreaker.halfOpenRequests = 0;
+      } else {
+        // Circuit is still open, reject immediately
+        return Promise.reject(new Error('Circuit breaker is OPEN - GHL API is temporarily unavailable'));
+      }
+    }
+    
+    // Check half-open state
+    if (state === 'half-open' && this.circuitBreaker.halfOpenRequests >= CIRCUIT_BREAKER.halfOpenRequests) {
+      return Promise.reject(new Error('Circuit breaker is HALF-OPEN - limited requests allowed'));
+    }
+    
+    if (state === 'half-open') {
+      this.circuitBreaker.halfOpenRequests++;
+    }
+    
+    return config;
+  }
+  
+  // Retry interceptor with exponential backoff
+  async retryInterceptor(error) {
+    const config = error.config;
+    
+    // Initialize retry count
+    if (!config._retryCount) {
+      config._retryCount = 0;
+    }
+    
+    // Check if we should retry
+    const shouldRetry = this.shouldRetry(error, config._retryCount);
+    
+    if (!shouldRetry) {
+      // Update circuit breaker on failure
+      this.updateCircuitBreaker(false);
+      throw error;
+    }
+    
+    // Calculate delay with exponential backoff
+    const delay = RETRY_CONFIG.retryDelay * Math.pow(RETRY_CONFIG.retryMultiplier, config._retryCount);
+    config._retryCount++;
+    
+    this.logger.info('Retrying GHL API request', {
+      attempt: config._retryCount,
+      maxRetries: RETRY_CONFIG.maxRetries,
+      delay
+    });
+    
+    // Wait before retrying
+    await new Promise(resolve => setTimeout(resolve, delay));
+    
+    // Retry the request
+    return this.client.request(config);
+  }
+  
+  // Determine if request should be retried
+  shouldRetry(error, retryCount) {
+    if (retryCount >= RETRY_CONFIG.maxRetries) {
+      return false;
+    }
+    
+    // Check for retryable error codes
+    if (error.code && RETRY_CONFIG.retryableErrors.includes(error.code)) {
+      return true;
+    }
+    
+    // Check for retryable status codes
+    if (error.response && RETRY_CONFIG.retryableStatusCodes.includes(error.response.status)) {
+      return true;
+    }
+    
+    // Don't retry on client errors (4xx) except specific ones
+    if (error.response && error.response.status >= 400 && error.response.status < 500) {
+      return error.response.status === 408 || error.response.status === 429;
+    }
+    
+    return false;
+  }
+  
+  // Update circuit breaker state
+  updateCircuitBreaker(success) {
+    if (success) {
+      // Reset on success
+      if (this.circuitBreaker.state === 'half-open') {
+        this.logger.info('Circuit breaker state change: HALF-OPEN -> CLOSED');
+        this.circuitBreaker.state = 'closed';
+      }
+      this.circuitBreaker.failures = 0;
+      this.circuitBreaker.lastFailureTime = null;
+    } else {
+      // Increment failures
+      this.circuitBreaker.failures++;
+      this.circuitBreaker.lastFailureTime = Date.now();
+      
+      // Check if we should open the circuit
+      if (this.circuitBreaker.failures >= CIRCUIT_BREAKER.failureThreshold) {
+        this.logger.warn('Circuit breaker state change: -> OPEN', {
+          failures: this.circuitBreaker.failures,
+          threshold: CIRCUIT_BREAKER.failureThreshold
+        });
+        this.circuitBreaker.state = 'open';
+      }
+    }
+  }
+  
+  // Queue message for retry
+  async queueForRetry(data) {
+    this.retryQueue.push({
+      ...data,
+      timestamp: Date.now(),
+      attempts: 0
+    });
+    
+    // Process retry queue asynchronously
+    setTimeout(() => this.processRetryQueue(), 30000); // Try again in 30 seconds
+  }
+  
+  // Process queued messages
+  async processRetryQueue() {
+    if (this.retryQueue.length === 0 || this.circuitBreaker.state === 'open') {
+      return;
+    }
+    
+    const batch = this.retryQueue.splice(0, 5); // Process up to 5 at a time
+    
+    for (const item of batch) {
+      try {
+        if (item.type === 'sms') {
+          await this.sendSMS(item.contactId, item.message);
+        } else if (item.type === 'tag') {
+          await this.addTags(item.contactId, item.tags);
+        } else if (item.type === 'note') {
+          await this.addNote(item.contactId, item.note);
+        }
+      } catch (error) {
+        // Re-queue if still failing and under max attempts
+        if (item.attempts < 3) {
+          item.attempts++;
+          this.retryQueue.push(item);
+        } else {
+          this.logger.error('Failed to process queued item after max attempts', {
+            item,
+            attempts: item.attempts
+          });
+        }
+      }
+    }
+  }
+  
+  // Wrapper for all API requests with monitoring
+  async makeRequest(method, url, options = {}) {
+    const startTime = Date.now();
+    const endpoint = `${method.toUpperCase()} ${url}`;
+    
+    try {
+      const response = await this.client.request({
+        method,
+        url,
+        ...options
+      });
+      
+      // Record successful request
+      const latency = Date.now() - startTime;
+      metrics.recordGhlApiCall(endpoint, method, true, latency);
+      
+      // Update circuit breaker on success
+      this.updateCircuitBreaker(true);
+      
+      return response;
+    } catch (error) {
+      // Record failed request
+      const latency = Date.now() - startTime;
+      metrics.recordGhlApiCall(endpoint, method, false, latency);
+      
+      // Log error details
+      this.logger.error('GHL API request failed', {
+        endpoint,
+        method,
+        error: error.message,
+        status: error.response?.status,
+        latency
+      });
+      
+      throw error;
+    }
+  }
 
   // Create or update contact
   async createOrUpdateContact(phoneNumber, data) {
@@ -37,7 +311,10 @@ export class GHLService {
         return await this.createContact({ ...data, phone: phoneNumber });
       }
     } catch (error) {
-      console.error('Error creating/updating contact:', error);
+      this.logger.error('Error creating/updating contact', {
+        error: error.message,
+        phoneNumber
+      });
       throw error;
     }
   }
@@ -45,10 +322,9 @@ export class GHLService {
   // Find contact by phone number
   async findContactByPhone(phoneNumber) {
     try {
-      const response = await axios.get(
-        `${this.baseURL}/contacts/search/duplicate`,
+      const response = await this.client.get(
+        `/contacts/search/duplicate`,
         {
-          headers: this.getHeaders(),
           params: {
             locationId: this.locationId,
             phone: phoneNumber
@@ -67,8 +343,8 @@ export class GHLService {
   // Create new contact
   async createContact(data) {
     try {
-      const response = await axios.post(
-        `${this.baseURL}/contacts`,
+      const response = await this.client.post(
+        `/contacts`,
         {
           locationId: this.locationId,
           ...data
@@ -77,7 +353,10 @@ export class GHLService {
       );
       return response.data.contact;
     } catch (error) {
-      console.error('Error creating contact:', error.response?.data);
+      this.logger.error('Error creating contact', {
+        error: error.message,
+        responseData: error.response?.data
+      });
       throw error;
     }
   }
@@ -115,14 +394,17 @@ export class GHLService {
         data.customFields = customFieldData;
       }
       
-      const response = await axios.put(
-        `${this.baseURL}/contacts/${contactId}`,
-        data,
-        { headers: this.getHeaders() }
+      const response = await this.client.put(
+        `/contacts/${contactId}`,
+        data
       );
       return response.data.contact;
     } catch (error) {
-      console.error('Error updating contact:', error.response?.data);
+      this.logger.error('Error updating contact', {
+        error: error.message,
+        contactId,
+        responseData: error.response?.data
+      });
       throw error;
     }
   }
@@ -130,13 +412,16 @@ export class GHLService {
   // Get contact by ID
   async getContact(contactId) {
     try {
-      const response = await axios.get(
-        `${this.baseURL}/contacts/${contactId}`,
-        { headers: this.getHeaders() }
+      const response = await this.client.get(
+        `/contacts/${contactId}`
       );
       return response.data.contact;
     } catch (error) {
-      console.error('Error getting contact:', error.response?.data);
+      this.logger.error('Error getting contact', {
+        error: error.message,
+        contactId,
+        responseData: error.response?.data
+      });
       throw error;
     }
   }
@@ -144,14 +429,18 @@ export class GHLService {
   // Add tags to contact
   async addTags(contactId, tags) {
     try {
-      const response = await axios.post(
-        `${this.baseURL}/contacts/${contactId}/tags`,
-        { tags },
-        { headers: this.getHeaders() }
+      const response = await this.client.post(
+        `/contacts/${contactId}/tags`,
+        { tags }
       );
       return response.data;
     } catch (error) {
-      console.error('Error adding tags:', error.response?.data);
+      this.logger.error('Error adding tags', {
+        error: error.message,
+        contactId,
+        tags,
+        responseData: error.response?.data
+      });
       throw error;
     }
   }
@@ -159,17 +448,20 @@ export class GHLService {
   // Add note to contact
   async addNote(contactId, note) {
     try {
-      const response = await axios.post(
-        `${this.baseURL}/contacts/${contactId}/notes`,
+      const response = await this.client.post(
+        `/contacts/${contactId}/notes`,
         { 
           body: note,
           userId: this.locationId // Using location ID as fallback
-        },
-        { headers: this.getHeaders() }
+        }
       );
       return response.data;
     } catch (error) {
-      console.error('Error adding note:', error.response?.data);
+      this.logger.error('Error adding note', {
+        error: error.message,
+        contactId,
+        responseData: error.response?.data
+      });
       throw error;
     }
   }
@@ -182,10 +474,9 @@ export class GHLService {
       const endTimestamp = new Date(endDate).getTime();
       
       // Try v2 API endpoint structure
-      const response = await axios.get(
-        `${this.baseURL}/calendars/${calendarId}/free-slots`,
+      const response = await this.client.get(
+        `/calendars/${calendarId}/free-slots`,
         {
-          headers: this.getHeaders(),
           params: {
             startDate: startTimestamp,
             endDate: endTimestamp,
@@ -218,7 +509,11 @@ export class GHLService {
       
       return allSlots;
     } catch (error) {
-      console.error('Error getting calendar slots:', error.response?.data);
+      this.logger.error('Error getting calendar slots', {
+        error: error.message,
+        calendarId,
+        responseData: error.response?.data
+      });
       
       // If v2 endpoint fails, try v1 endpoint
       if (error.response?.status === 404 || error.response?.status === 422) {
@@ -226,10 +521,9 @@ export class GHLService {
           const startTimestamp = new Date(startDate).getTime();
           const endTimestamp = new Date(endDate).getTime();
           
-          const altResponse = await axios.get(
-            `${this.baseURL}/appointments/slots`,
+          const altResponse = await this.client.get(
+            `/appointments/slots`,
             {
-              headers: this.getHeaders(),
               params: {
                 calendarId,
                 startDate: startTimestamp,
@@ -263,7 +557,10 @@ export class GHLService {
           
           return allSlots;
         } catch (altError) {
-          console.error('Alternative endpoint also failed:', altError.response?.data);
+          this.logger.error('Alternative calendar endpoint also failed', {
+            error: altError.message,
+            responseData: altError.response?.data
+          });
           throw altError;
         }
       }
@@ -275,8 +572,8 @@ export class GHLService {
   // Book appointment
   async bookAppointment(calendarId, contactId, slotData) {
     try {
-      const response = await axios.post(
-        `${this.baseURL}/calendars/events/appointments`,
+      const response = await this.client.post(
+        `/calendars/events/appointments`,
         {
           calendarId,
           locationId: this.locationId,
@@ -286,50 +583,38 @@ export class GHLService {
           startTime: slotData.startTime,
           endTime: slotData.endTime,
           toNotify: true
-        },
-        { headers: this.getHeaders() }
+        }
       );
       return response.data;
     } catch (error) {
-      console.error('Error booking appointment:', error.response?.data);
+      this.logger.error('Error booking appointment', {
+        error: error.message,
+        calendarId,
+        contactId,
+        responseData: error.response?.data
+      });
       throw error;
     }
   }
 
-  // Send WhatsApp message via GHL
-  async sendSMS(contactId, message) {
-    try {
-      const response = await axios.post(
-        `${this.baseURL}/conversations/messages`,
-        {
-          type: 'WhatsApp',
-          locationId: this.locationId,
-          contactId,
-          message: message
-        },
-        { headers: this.getHeaders() }
-      );
-      return response.data;
-    } catch (error) {
-      console.error('Error sending WhatsApp message:', error.response?.data);
-      throw error;
-    }
-  }
 
   // Create conversation for tracking
   async createConversation(contactId) {
     try {
-      const response = await axios.post(
-        `${this.baseURL}/conversations`,
+      const response = await this.client.post(
+        `/conversations`,
         {
           locationId: this.locationId,
           contactId
-        },
-        { headers: this.getHeaders() }
+        }
       );
       return response.data.conversation;
     } catch (error) {
-      console.error('Error creating conversation:', error.response?.data);
+      this.logger.error('Error creating conversation', {
+        error: error.message,
+        contactId,
+        responseData: error.response?.data
+      });
       throw error;
     }
   }
@@ -337,10 +622,9 @@ export class GHLService {
   // Get conversation messages from GHL
   async getConversationMessages(conversationId) {
     try {
-      const response = await axios.get(
-        `${this.baseURL}/conversations/${conversationId}/messages`,
+      const response = await this.client.get(
+        `/conversations/${conversationId}/messages`,
         {
-          headers: this.getHeaders(),
           params: {
             limit: 100 // Get last 100 messages
             // Don't filter by type - GHL shows WhatsApp as TYPE_PHONE
@@ -348,7 +632,7 @@ export class GHLService {
         }
       );
       
-      console.log('GHL messages response structure:', {
+      this.logger.debug('GHL messages response structure', {
         hasMessages: !!response.data.messages,
         hasNestedMessages: !!(response.data.messages && response.data.messages.messages),
         dataKeys: Object.keys(response.data)
@@ -356,17 +640,23 @@ export class GHLService {
       
       // Handle nested response structure
       if (response.data.messages && response.data.messages.messages) {
-        console.log(`Found ${response.data.messages.messages.length} messages in nested structure`);
+        this.logger.debug('Found messages in nested structure', {
+          messageCount: response.data.messages.messages.length
+        });
         return response.data.messages.messages;
       }
       
       // Handle direct messages array
       const messages = response.data.messages || response.data.data || response.data;
       const result = Array.isArray(messages) ? messages : [];
-      console.log(`Returning ${result.length} messages from GHL`);
+      this.logger.debug('Returning messages from GHL', { count: result.length });
       return result;
     } catch (error) {
-      console.error('Error fetching conversation messages:', error.response?.data);
+      this.logger.error('Error fetching conversation messages', {
+        error: error.message,
+        conversationId,
+        responseData: error.response?.data
+      });
       throw error;
     }
   }
@@ -374,13 +664,17 @@ export class GHLService {
   // Get conversation by ID
   async getConversation(conversationId) {
     try {
-      const response = await axios.get(
-        `${this.baseURL}/conversations/${conversationId}`,
+      const response = await this.client.get(
+        `/conversations/${conversationId}`,
         { headers: this.getHeaders() }
       );
       return response.data.conversation;
     } catch (error) {
-      console.error('Error fetching conversation:', error.response?.data);
+      this.logger.error('Error fetching conversation', {
+        error: error.message,
+        conversationId,
+        responseData: error.response?.data
+      });
       throw error;
     }
   }
@@ -389,10 +683,9 @@ export class GHLService {
   async getContactConversations(contactId) {
     try {
       // Try the contact-specific endpoint first
-      const response = await axios.get(
-        `${this.baseURL}/contacts/${contactId}/conversations`,
+      const response = await this.client.get(
+        `/contacts/${contactId}/conversations`,
         {
-          headers: this.getHeaders(),
           params: {
             limit: 10
           }
@@ -405,10 +698,9 @@ export class GHLService {
       // If that fails, try the search endpoint
       if (error.response?.status === 404) {
         try {
-          const searchResponse = await axios.get(
-            `${this.baseURL}/conversations/search`,
+          const searchResponse = await this.client.get(
+            `/conversations/search`,
             {
-              headers: this.getHeaders(),
               params: {
                 locationId: this.locationId,
                 contactId: contactId,
@@ -420,11 +712,19 @@ export class GHLService {
           const conversations = searchResponse.data.conversations || searchResponse.data.data || searchResponse.data;
           return Array.isArray(conversations) ? conversations : [];
         } catch (searchError) {
-          console.error('Error searching conversations:', searchError.response?.data);
+          this.logger.error('Error searching conversations', {
+            error: searchError.message,
+            contactId,
+            responseData: searchError.response?.data
+          });
           throw searchError;
         }
       }
-      console.error('Error fetching contact conversations:', error.response?.data);
+      this.logger.error('Error fetching contact conversations', {
+        error: error.message,
+        contactId,
+        responseData: error.response?.data
+      });
       throw error;
     }
   }
@@ -433,12 +733,11 @@ export class GHLService {
   async searchConversationsByPhone(phone) {
     try {
       const formattedPhone = formatPhoneNumber(phone);
-      console.log(`Searching conversations for phone: ${formattedPhone}`);
+      this.logger.debug('Searching conversations by phone', { formattedPhone });
       
-      const response = await axios.get(
-        `${this.baseURL}/conversations/search`,
+      const response = await this.client.get(
+        `/conversations/search`,
         {
-          headers: this.getHeaders(),
           params: {
             locationId: this.locationId,
             q: formattedPhone,
@@ -448,11 +747,18 @@ export class GHLService {
       );
       
       const conversations = response.data.conversations || response.data || [];
-      console.log(`Found ${conversations.length} conversations for phone ${formattedPhone}`);
+      this.logger.debug('Found conversations by phone', {
+        count: conversations.length,
+        formattedPhone
+      });
       
       return conversations;
     } catch (error) {
-      console.error('Error searching conversations:', error.response?.data);
+      this.logger.error('Error searching conversations by phone', {
+        error: error.message,
+        phone,
+        responseData: error.response?.data
+      });
       return [];
     }
   }
@@ -468,7 +774,9 @@ export class GHLService {
           const sortedConvs = conversationsByPhone.sort((a, b) => 
             new Date(b.dateUpdated || b.dateAdded) - new Date(a.dateUpdated || a.dateAdded)
           );
-          console.log(`Using existing conversation ${sortedConvs[0].id} found by phone search`);
+          this.logger.info('Using existing conversation found by phone search', {
+            conversationId: sortedConvs[0].id
+          });
           return sortedConvs[0];
         }
       }
@@ -488,15 +796,22 @@ export class GHLService {
       // If no conversations found, try to create one
       try {
         const newConversation = await this.createConversation(contactId);
-        console.log(`Created new conversation ${newConversation.id}`);
+        this.logger.info('Created new conversation', {
+          conversationId: newConversation.id,
+          contactId
+        });
         return newConversation;
       } catch (createError) {
-        console.error('Failed to create conversation:', createError.response?.data);
+        this.logger.error('Failed to create conversation', {
+          error: createError.message,
+          contactId,
+          responseData: createError.response?.data
+        });
       }
       
       // If all else fails, return a mock conversation object
       // This should rarely happen
-      console.warn('Using mock conversation ID as last resort');
+      this.logger.warn('Using mock conversation ID as last resort', { contactId });
       return {
         id: `conv_${contactId}`,
         contactId: contactId,
@@ -504,7 +819,10 @@ export class GHLService {
         locationId: this.locationId
       };
     } catch (error) {
-      console.error('Error getting/creating conversation:', error);
+      this.logger.error('Error getting/creating conversation', {
+        error: error.message,
+        contactId
+      });
       // Return a mock conversation object as fallback
       return {
         id: `conv_${contactId}`,
@@ -512,6 +830,48 @@ export class GHLService {
         status: 'active',
         locationId: this.locationId
       };
+    }
+  }
+
+  // Send WhatsApp message (with resilience)
+  async sendSMS(contactId, message) {
+    try {
+      const response = await this.client.post(
+        '/conversations/messages',
+        {
+          type: 'WhatsApp', // Using WhatsApp type
+          contactId: contactId,
+          message: message
+        }
+      );
+      
+      // Update circuit breaker on success
+      this.updateCircuitBreaker(true);
+      
+      this.logger.info('WhatsApp message sent successfully', { contactId });
+      return response.data;
+    } catch (error) {
+      this.logger.error('Error sending WhatsApp message', {
+        error: error.message,
+        contactId,
+        responseData: error.response?.data
+      });
+      
+      // If circuit breaker is open or request failed, queue for retry
+      if (this.circuitBreaker.state === 'open' || error.code === 'ECONNABORTED') {
+        this.logger.info('Queueing WhatsApp message for retry', {
+          reason: 'GHL unavailability',
+          circuitBreakerState: this.circuitBreaker.state
+        });
+        await this.queueForRetry({
+          type: 'sms',
+          contactId,
+          message
+        });
+        return { success: false, queued: true, error: 'Message queued for retry' };
+      }
+      
+      throw error;
     }
   }
 }

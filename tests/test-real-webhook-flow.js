@@ -1,5 +1,5 @@
 // Test the complete webhook flow with real GHL contact
-import { graph } from './agents/webhookHandler.js';
+import { graph } from '../agents/webhookHandler.js';
 import { HumanMessage } from '@langchain/core/messages';
 import dotenv from 'dotenv';
 
