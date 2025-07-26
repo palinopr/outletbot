@@ -14,9 +14,7 @@ import { featureFlags, FLAGS } from '../services/featureFlags.js';
 const logger = new Logger('salesAgent');
 
 // Initialize checkpointer for conversation persistence (if enabled)
-const checkpointer = featureFlags.isEnabled(FLAGS.USE_MEMORY_SAVER) 
-  ? new MemorySaver() 
-  : null;
+const checkpointer = featureFlags.isEnabled(FLAGS.USE_MEMORY_SAVER) ? new MemorySaver() : null;
 
 // Agent configuration with timeout and retry handling
 const AGENT_CONFIG = {
@@ -132,7 +130,7 @@ const extractLeadInfo = tool(
             messages: [{
               role: "tool",
               content: "Max extraction attempts reached",
-              tool_call_id: config.toolCall?.id || "extract_lead_info"
+              tool_call_id: toolCallId
             }]
           }
         });
@@ -193,7 +191,7 @@ const extractLeadInfo = tool(
               messages: [{
                 role: "tool",
                 content: "No new information extracted from message",
-                tool_call_id: config.toolCall?.id || "extract_lead_info"
+                tool_call_id: toolCallId
               }]
             }
           });
@@ -215,7 +213,7 @@ const extractLeadInfo = tool(
           processingTime: Date.now() - startTime
         });
         
-        // Return Command object with state updates
+        // Return Command object with state updates and tool message
         return new Command({
           update: {
             leadInfo: merged,
@@ -223,7 +221,7 @@ const extractLeadInfo = tool(
             messages: [{
               role: "tool",
               content: `Extracted: ${JSON.stringify(extracted)}`,
-              tool_call_id: config.toolCall?.id || "extract_lead_info",
+              tool_call_id: toolCallId
             }]
           }
         });
@@ -232,11 +230,27 @@ const extractLeadInfo = tool(
           error: e.message,
           response: response.content 
         });
-        return new Command({ update: {} });
+        return new Command({ 
+          update: {
+            messages: [{
+              role: "tool",
+              content: `Error parsing response: ${e.message}`,
+              tool_call_id: toolCallId
+            }]
+          }
+        });
       }
     } catch (error) {
       logger.error('Error in extractLeadInfo tool', { error: error.message });
-      return new Command({ update: {} });
+      return new Command({ 
+        update: {
+          messages: [{
+            role: "tool",
+            content: `Error extracting info: ${error.message}`,
+            tool_call_id: toolCallId
+          }]
+        }
+      });
     }
   },
   {
@@ -259,6 +273,8 @@ const calendarCache = {
 // Tool: Get calendar slots (ONLY after full qualification)
 const getCalendarSlots = tool(
   async ({ startDate, endDate }, config) => {
+    const toolCallId = config.toolCall?.id || 'get_calendar_slots';
+    
     // Access current state via config
     const currentState = config?.getState ? await config.getState() : config?.configurable || {};
     const currentLeadInfo = currentState.leadInfo || {};
@@ -290,7 +306,7 @@ const getCalendarSlots = tool(
           messages: [{
             role: "tool",
             content: "Missing required information for calendar: " + Object.keys(missingFields).filter(k => missingFields[k]).join(", "),
-            tool_call_id: config.toolCall?.id || "get_calendar_slots"
+            tool_call_id: toolCallId
           }]
         }
       });
@@ -303,7 +319,7 @@ const getCalendarSlots = tool(
           messages: [{
             role: "tool",
             content: `Cannot fetch slots - budget under $300/month (current: $${currentLeadInfo.budget})`,
-            tool_call_id: config.toolCall?.id || "get_calendar_slots"
+            tool_call_id: toolCallId
           }]
         }
       });
@@ -378,14 +394,14 @@ const getCalendarSlots = tool(
         };
       });
       
-      // Return Command with slots in state
+      // Return Command with slots in state and tool message
       return new Command({
         update: {
           availableSlots: formattedSlots,
           messages: [{
             role: "tool",
             content: `Found ${formattedSlots.length} available slots`,
-            tool_call_id: config.toolCall?.id || "get_calendar_slots"
+            tool_call_id: toolCallId
           }]
         }
       });
@@ -401,7 +417,7 @@ const getCalendarSlots = tool(
           messages: [{
             role: "tool",
             content: `Error fetching calendar: ${error.message}`,
-            tool_call_id: config.toolCall?.id || "get_calendar_slots"
+            tool_call_id: toolCallId
           }]
         }
       });
@@ -420,6 +436,8 @@ const getCalendarSlots = tool(
 // Tool: Book appointment
 const bookAppointment = tool(
   async ({ slot, leadName, leadEmail }, config) => {
+    const toolCallId = config.toolCall?.id || 'book_appointment';
+    
     // Access current state via config
     const currentState = config?.getState ? await config.getState() : config?.configurable || {};
     const contactId = currentState.contactId || config?.configurable?.contactId;
@@ -452,15 +470,15 @@ const bookAppointment = tool(
         }
       );
       
-      // Return Command with termination signal
+      // Return Command with tool message and termination signal
       return new Command({
         update: {
           appointmentBooked: true,
           messages: [
             {
-              role: "assistant",
-              content: `¡Perfecto! Tu cita está confirmada para ${slot.display}. Te enviaré un recordatorio antes de nuestra llamada.`,
-              name: "María"
+              role: "tool",
+              content: `Appointment booked successfully for ${slot.display}`,
+              tool_call_id: toolCallId
             }
           ],
           lastUpdate: new Date().toISOString()
@@ -474,14 +492,14 @@ const bookAppointment = tool(
         calendarId,
         slot
       });
-      // Return Command with error
+      // Return Command with tool error message
       return new Command({
         update: {
           messages: [
             {
-              role: "assistant",
-              content: `Error al reservar la cita: ${error.message}. Por favor, intenta nuevamente.`,
-              name: "María"
+              role: "tool",
+              content: `Error booking appointment: ${error.message}`,
+              tool_call_id: toolCallId
             }
           ]
         }
@@ -506,6 +524,8 @@ const bookAppointment = tool(
 // Tool: Update GHL contact
 const updateGHLContact = tool(
   async ({ tags, notes }, config) => {
+    const toolCallId = config.toolCall?.id || 'update_ghl_contact';
+    
     // Access current state via config
     const currentState = config?.getState ? await config.getState() : config?.configurable || {};
     const contactId = currentState.contactId || config?.configurable?.contactId;
@@ -561,11 +581,16 @@ const updateGHLContact = tool(
         await ghlService.updateContact(contactId, updateData);
       }
       
-      // Return Command with update status
+      // Return Command with update status and tool message
       return new Command({
         update: {
           ghlUpdated: true,
-          lastUpdate: new Date().toISOString()
+          lastUpdate: new Date().toISOString(),
+          messages: [{
+            role: "tool",
+            content: "Contact updated successfully",
+            tool_call_id: toolCallId
+          }]
         }
       });
     } catch (error) {
@@ -576,11 +601,16 @@ const updateGHLContact = tool(
         hasNotes: !!notes,
         hasLeadInfo: !!leadInfo
       });
-      // Return Command with error in state
+      // Return Command with error in state and tool message
       return new Command({
         update: {
           ghlUpdated: false,
-          lastUpdate: new Date().toISOString()
+          lastUpdate: new Date().toISOString(),
+          messages: [{
+            role: "tool",
+            content: `Error updating contact: ${error.message}`,
+            tool_call_id: toolCallId
+          }]
         }
       });
     }
@@ -598,6 +628,8 @@ const updateGHLContact = tool(
 // Tool: Parse time selection
 const parseTimeSelection = tool(
   async ({ userMessage }, config) => {
+    const toolCallId = config.toolCall?.id || 'parse_time_selection';
+    
     // Access current state to get available slots
     const currentState = config?.getState ? await config.getState() : config?.configurable || {};
     const availableSlots = currentState.availableSlots || [];
@@ -608,7 +640,7 @@ const parseTimeSelection = tool(
           messages: [{
             role: "tool",
             content: "No available slots in state to parse selection from",
-            tool_call_id: config.toolCall?.id || "parse_time_selection"
+            tool_call_id: toolCallId
           }]
         }
       });
@@ -632,26 +664,27 @@ const parseTimeSelection = tool(
     const selection = parseInt(response.content.trim());
     
     if (selection > 0 && selection <= availableSlots.length) {
-      // Return Command with selected slot
+      // Return Command with selected slot and tool message
       const selectedSlot = availableSlots[selection - 1];
       return new Command({
         update: {
+          selectedSlot: selectedSlot,
           messages: [{
             role: "tool",
             content: `User selected slot ${selection}: ${selectedSlot.display}`,
-            tool_call_id: config.toolCall?.id || "parse_time_selection"
+            tool_call_id: toolCallId
           }]
         }
       });
     }
     
-    // Return Command with error
+    // Return Command with error and tool message
     return new Command({
       update: {
         messages: [{
           role: "tool",
           content: "Could not understand time selection from user message",
-          tool_call_id: config.toolCall?.id || "parse_time_selection"
+          tool_call_id: toolCallId
         }]
       }
     });
@@ -717,14 +750,14 @@ const sendGHLMessage = tool(
         totalTime: Date.now() - startTime
       });
       
-      // Return Command object with message update
+      // Return Command object with tool message
       return new Command({
         update: {
           messages: [
             {
-              role: "assistant",
-              content: message,
-              name: "María"
+              role: "tool",
+              content: `Message sent successfully: "${message.substring(0, 50)}..."`,
+              tool_call_id: toolCallId
             }
           ],
           lastUpdate: new Date().toISOString()
@@ -736,14 +769,14 @@ const sendGHLMessage = tool(
         contactId,
         messageLength: message.length
       });
-      // Return Command with error in messages
+      // Return Command with error tool message
       return new Command({
         update: {
           messages: [
             {
               role: "tool",
               content: `Error sending message: ${error.message}`,
-              tool_call_id: config.toolCall?.id || "send_ghl_message"
+              tool_call_id: toolCallId
             }
           ]
         }
@@ -835,14 +868,45 @@ const promptFunction = (state) => {
   ];
 };
 
-// Message window hook to limit context size
+// Message window hook to limit context size and clean history
 const preModelHook = (state) => {
   // Keep only last 10 messages for token efficiency
-  const recentMessages = state.messages.slice(-10);
+  let recentMessages = state.messages.slice(-10);
+  
+  // Clean up any orphaned tool calls to prevent OpenAI errors
+  const cleaned = [];
+  for (let i = 0; i < recentMessages.length; i++) {
+    const msg = recentMessages[i];
+    
+    // Skip AI messages with tool_calls that don't have corresponding tool responses
+    if (msg.role === 'assistant' && msg.tool_calls && msg.tool_calls.length > 0) {
+      const nextMsg = recentMessages[i + 1];
+      if (!nextMsg || nextMsg.role !== 'tool') {
+        // Skip this orphaned tool call message
+        logger.debug('Skipping orphaned tool_call message', { 
+          content: msg.content?.substring(0, 50) 
+        });
+        continue;
+      }
+    }
+    
+    // Skip tool messages that don't have a preceding AI message with tool_calls
+    if (msg.role === 'tool' && i > 0) {
+      const prevMsg = recentMessages[i - 1];
+      if (!prevMsg || prevMsg.role !== 'assistant' || !prevMsg.tool_calls) {
+        logger.debug('Skipping orphaned tool response', { 
+          tool_call_id: msg.tool_call_id 
+        });
+        continue;
+      }
+    }
+    
+    cleaned.push(msg);
+  }
   
   return {
     ...state,
-    messages: recentMessages
+    messages: cleaned
   };
 };
 
@@ -884,9 +948,58 @@ export async function salesAgentInvoke(input, agentConfig) {
     metrics.recordConversationStarted();
   }
   
+  // Clean messages to prevent OpenAI tool_calls error
+  const cleanedMessages = [];
+  const inputMessages = input.messages || [];
+  
+  for (let i = 0; i < inputMessages.length; i++) {
+    const msg = inputMessages[i];
+    
+    // Skip AI messages with tool_calls that don't have corresponding tool responses
+    if (msg.role === 'assistant' && msg.tool_calls && msg.tool_calls.length > 0) {
+      // Check if all tool calls have responses
+      let hasAllResponses = true;
+      for (const toolCall of msg.tool_calls) {
+        const hasResponse = inputMessages.slice(i + 1).some(m => 
+          m.role === 'tool' && m.tool_call_id === toolCall.id
+        );
+        if (!hasResponse) {
+          hasAllResponses = false;
+          break;
+        }
+      }
+      
+      if (!hasAllResponses) {
+        // Convert to regular message without tool_calls
+        logger.debug('Cleaning orphaned tool_call message', { 
+          content: msg.content?.substring(0, 50) 
+        });
+        cleanedMessages.push({
+          ...msg,
+          tool_calls: undefined,
+          additional_kwargs: {}
+        });
+        continue;
+      }
+    }
+    
+    // Skip orphaned tool responses
+    if (msg.role === 'tool') {
+      const prevMsg = i > 0 ? inputMessages[i - 1] : null;
+      if (!prevMsg || prevMsg.role !== 'assistant' || !prevMsg.tool_calls?.some(tc => tc.id === msg.tool_call_id)) {
+        logger.debug('Skipping orphaned tool response', { 
+          tool_call_id: msg.tool_call_id 
+        });
+        continue;
+      }
+    }
+    
+    cleanedMessages.push(msg);
+  }
+  
   // Prepare initial state with all necessary fields
   const initialState = {
-    messages: input.messages || [],
+    messages: cleanedMessages,
     leadInfo: input.leadInfo || {},
     contactId: contactId,
     conversationId: input.conversationId || null,
@@ -961,6 +1074,7 @@ export async function salesAgentInvoke(input, agentConfig) {
         ]
       };
     }
+    
     
     // Handle cancellation errors
     if (error.name === 'CancelledError' || error.message.includes('cancelled')) {

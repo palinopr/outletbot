@@ -461,7 +461,8 @@ async function webhookHandlerNode(state, config) {
       config.callbacks.handleError?.(error);
     }
     
-    // Return user-friendly error message
+    
+    // Return user-friendly error message for other errors
     const errorMessage = error.name === 'CancelledError' || error.message.includes('cancelled')
       ? 'Hubo una interrupción temporal. Por favor, envía tu mensaje nuevamente.'
       : 'Lo siento, hubo un error procesando tu mensaje. Por favor intenta de nuevo.';
