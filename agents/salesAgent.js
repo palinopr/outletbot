@@ -2,8 +2,8 @@ import { createReactAgent } from "@langchain/langgraph/prebuilt";
 import { tool } from "@langchain/core/tools";
 import { z } from "zod";
 import { ChatOpenAI } from "@langchain/openai";
-import { SystemMessage } from "@langchain/core/messages";
-import { getCurrentTaskInput, Annotation, MessagesAnnotation, MemorySaver } from '@langchain/langgraph';
+import { SystemMessage, ToolMessage } from "@langchain/core/messages";
+import { getCurrentTaskInput, Annotation, MessagesAnnotation, MemorySaver, Command } from '@langchain/langgraph';
 import { Logger } from '../services/logger.js';
 import { config } from '../services/config.js';
 import { metrics } from '../services/monitoring.js';
@@ -28,25 +28,46 @@ const AGENT_CONFIG = {
   }
 };
 
+// Maximum extraction attempts per conversation
+const MAX_EXTRACTION_ATTEMPTS = 3;
+
 // Tool: Extract lead information from messages
 const extractLeadInfo = tool(
   async ({ message }, config) => {
     const startTime = Date.now();
     try {
-      const llm = new ChatOpenAI({ model: "gpt-4", temperature: 0 });
-      
-      // Access the current state to get existing leadInfo
+      // Access the current state properly using getCurrentTaskInput
       let currentState;
       try {
         currentState = getCurrentTaskInput();
       } catch (e) {
-        // If getCurrentTaskInput fails, we're not in a graph context
-        currentState = null;
+        logger.warn('getCurrentTaskInput not available, using empty state');
+        currentState = { leadInfo: {}, extractionCount: 0, processedMessages: [] };
       }
-    
-      const existingLeadInfo = currentState?.leadInfo || config?.configurable?.currentLeadInfo || {};
       
-      // Build currentInfo from state, not from tool input
+      // Circuit breaker to prevent excessive extractions
+      const extractionCount = currentState.extractionCount || 0;
+      if (extractionCount >= MAX_EXTRACTION_ATTEMPTS) {
+        logger.warn('Max extraction attempts reached, returning current state');
+        return new Command({
+          update: {}
+        });
+      }
+      
+      // Deduplication - check if we've already processed this message
+      const messageHash = message.toLowerCase().trim();
+      const processedMessages = currentState.processedMessages || [];
+      if (processedMessages.includes(messageHash)) {
+        logger.debug('Message already processed, skipping extraction');
+        return new Command({
+          update: {}
+        });
+      }
+      
+      const llm = new ChatOpenAI({ model: "gpt-4", temperature: 0 });
+      const existingLeadInfo = currentState?.leadInfo || {};
+      
+      // Build currentInfo from state
       const currentInfo = {
         name: existingLeadInfo.name || "",
         businessType: existingLeadInfo.businessType || "",
@@ -57,7 +78,7 @@ const extractLeadInfo = tool(
         businessDetails: existingLeadInfo.businessDetails || ""
       };
       
-      logger.debug('Extract lead info - Current context', { currentInfo });
+      logger.debug('Extract lead info - Current context', { currentInfo, extractionCount });
       
       const prompt = `Analyze this customer message and extract any information provided:
       Message: "${message}"
@@ -86,6 +107,15 @@ const extractLeadInfo = tool(
       try {
         const extracted = JSON.parse(response.content);
         
+        // Only update if there are actual changes
+        const hasChanges = Object.keys(extracted).length > 0;
+        if (!hasChanges) {
+          logger.debug('No new information extracted');
+          return new Command({
+            update: {}
+          });
+        }
+        
         // Merge with existing info
         const merged = { ...currentInfo };
         Object.keys(extracted).forEach(key => {
@@ -99,17 +129,41 @@ const extractLeadInfo = tool(
           mergedInfo: merged
         });
         
-        return merged;
+        // Return Command to update state with extraction tracking
+        return new Command({
+          update: {
+            leadInfo: merged,
+            extractionCount: extractionCount + 1,
+            processedMessages: [...processedMessages, messageHash]
+          }
+        });
       } catch (e) {
         logger.error('Failed to parse extraction response', { 
           error: e.message,
           response: response.content 
         });
-        return currentInfo; // Return existing info if extraction fails
+        // Return update with incremented count even on error
+        return new Command({
+          update: {
+            extractionCount: extractionCount + 1,
+            processedMessages: [...processedMessages, messageHash]
+          }
+        });
       }
     } catch (error) {
       logger.error('Error in extractLeadInfo tool', { error: error.message });
-      return config?.configurable?.currentLeadInfo || {};
+      // Return update with processed message tracking
+      const currentState = getCurrentTaskInput ? getCurrentTaskInput() : {};
+      const extractionCount = currentState.extractionCount || 0;
+      const processedMessages = currentState.processedMessages || [];
+      const messageHash = message.toLowerCase().trim();
+      
+      return new Command({
+        update: {
+          extractionCount: extractionCount + 1,
+          processedMessages: [...processedMessages, messageHash]
+        }
+      });
     }
   },
   {
@@ -121,6 +175,13 @@ const extractLeadInfo = tool(
     })
   }
 );
+
+// Simple in-memory cache for calendar slots (30 min TTL)
+const calendarCache = {
+  data: null,
+  timestamp: 0,
+  TTL: 30 * 60 * 1000 // 30 minutes
+};
 
 // Tool: Get calendar slots (ONLY after full qualification)
 const getCalendarSlots = tool(
@@ -164,11 +225,23 @@ const getCalendarSlots = tool(
     const end = endDate || new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
     
     try {
-      const slots = await ghlService.getAvailableSlots(
-        calendarId,
-        start,
-        end
-      );
+      let slots;
+      
+      // Check cache first
+      if (calendarCache.data && (Date.now() - calendarCache.timestamp < calendarCache.TTL)) {
+        logger.debug('Using cached calendar slots');
+        slots = calendarCache.data;
+      } else {
+        // Fetch fresh slots and cache them
+        slots = await ghlService.getAvailableSlots(
+          calendarId,
+          start,
+          end
+        );
+        calendarCache.data = slots;
+        calendarCache.timestamp = Date.now();
+        logger.debug('Fetched and cached new calendar slots');
+      }
       
       // Format slots for display in Spanish with Texas timezone
       return {
@@ -279,11 +352,20 @@ const bookAppointment = tool(
         }
       );
       
-      return {
-        success: true,
-        appointmentId: appointment.id,
-        confirmationMessage: `¡Perfecto! Tu cita está confirmada para ${slot.display}. Te enviaré un recordatorio antes de nuestra llamada.`
-      };
+      // Return a Command to update state with appointmentBooked flag and END signal
+      return new Command({
+        update: {
+          appointmentBooked: true,
+          messages: [
+            new ToolMessage({
+              content: `¡Perfecto! Tu cita está confirmada para ${slot.display}. Te enviaré un recordatorio antes de nuestra llamada.`,
+              tool_call_id: config.toolCall?.id || 'book_appointment',
+              name: 'book_appointment'
+            })
+          ]
+        },
+        goto: 'END' // Signal to end the conversation after booking
+      });
     } catch (error) {
       logger.error("Error booking appointment", {
         error: error.message,
@@ -291,10 +373,18 @@ const bookAppointment = tool(
         calendarId,
         slot
       });
-      return {
-        success: false,
-        error: error.message
-      };
+      // Return Command with error message
+      return new Command({
+        update: {
+          messages: [
+            new ToolMessage({
+              content: `Error al reservar la cita: ${error.message}. Por favor, intenta nuevamente.`,
+              tool_call_id: config.toolCall?.id || 'book_appointment',
+              name: 'book_appointment'
+            })
+          ]
+        }
+      });
     }
   },
   {
@@ -368,7 +458,17 @@ const updateGHLContact = tool(
         await ghlService.updateContact(contactId, updateData);
       }
       
-      return { success: true, updated: { tags, notes: !!notes, leadInfo: !!leadInfo } };
+      // Return Command to maintain consistency
+      return new Command({
+        update: {
+          lastGHLUpdate: {
+            timestamp: new Date().toISOString(),
+            tags: tags,
+            hasNotes: !!notes,
+            hasLeadInfo: !!leadInfo
+          }
+        }
+      });
     } catch (error) {
       logger.error("Error updating GHL contact", {
         error: error.message,
@@ -377,7 +477,12 @@ const updateGHLContact = tool(
         hasNotes: !!notes,
         hasLeadInfo: !!leadInfo
       });
-      return { success: false, error: error.message };
+      // Return Command with error tracking
+      return new Command({
+        update: {
+          lastError: `GHL Update Error: ${error.message}`
+        }
+      });
     }
   },
   {
@@ -400,7 +505,7 @@ const updateGHLContact = tool(
 
 // Tool: Parse time selection
 const parseTimeSelection = tool(
-  async ({ userMessage, availableSlots }) => {
+  async ({ userMessage, availableSlots }, config) => {
     const llm = new ChatOpenAI({ model: "gpt-4", temperature: 0 });
     
     const prompt = `User selected a time from these options:
@@ -419,18 +524,41 @@ const parseTimeSelection = tool(
     const selection = parseInt(response.content.trim());
     
     if (selection > 0 && selection <= availableSlots.length) {
-      return {
-        success: true,
-        selectedIndex: selection,
-        selectedSlot: availableSlots[selection - 1]
-      };
+      // Return Command to update state with selected slot
+      return new Command({
+        update: {
+          selectedSlot: availableSlots[selection - 1],
+          messages: [
+            new ToolMessage({
+              content: JSON.stringify({
+                success: true,
+                selectedIndex: selection,
+                selectedSlot: availableSlots[selection - 1]
+              }),
+              tool_call_id: config.toolCall?.id || 'parse_time_selection',
+              name: 'parse_time_selection'
+            })
+          ]
+        }
+      });
     }
     
-    return {
-      success: false,
-      error: "Could not understand selection",
-      selectedIndex: 0
-    };
+    // Return Command with error message
+    return new Command({
+      update: {
+        messages: [
+          new ToolMessage({
+            content: JSON.stringify({
+              success: false,
+              error: "Could not understand selection",
+              selectedIndex: 0
+            }),
+            tool_call_id: config.toolCall?.id || 'parse_time_selection',
+            name: 'parse_time_selection'
+          })
+        ]
+      }
+    });
   },
   {
     name: "parse_time_selection",
@@ -457,11 +585,47 @@ const sendGHLMessage = tool(
       throw new Error('contactId not found in config. Cannot send message.');
     }
     
-    // Initialize GHL service if not provided in config
+    // Check if appointment is already booked
+    const currentState = getCurrentTaskInput ? getCurrentTaskInput() : {};
+    if (currentState.appointmentBooked) {
+      // Allow post-appointment messages but signal to end if it's a thank you
+      const isThankYou = message.toLowerCase().includes('gracias') || 
+                        message.toLowerCase().includes('thank');
+      
+      // Initialize GHL service
+      let ghlService = config?.configurable?.ghlService;
+      if (!ghlService) {
+        const { GHLService } = await import('../services/ghlService.js');
+        ghlService = new GHLService(
+          process.env.GHL_API_KEY,
+          process.env.GHL_LOCATION_ID
+        );
+      }
+      
+      try {
+        await ghlService.sendSMS(contactId, message);
+        
+        // If it's a thank you message after booking, signal END
+        if (isThankYou) {
+          return new Command({
+            update: {},
+            goto: 'END'
+          });
+        }
+        
+        return new Command({
+          update: {}
+        });
+      } catch (error) {
+        logger.error("Error sending post-appointment message", { error: error.message });
+        return new Command({ update: {} });
+      }
+    }
+    
+    // Normal message sending for pre-appointment flow
     let ghlService = config?.configurable?.ghlService;
     
     if (!ghlService) {
-      // Dynamic import to avoid module resolution issues
       const { GHLService } = await import('../services/ghlService.js');
       ghlService = new GHLService(
         process.env.GHL_API_KEY,
@@ -470,24 +634,25 @@ const sendGHLMessage = tool(
     }
     
     try {
-      // Send via GHL's WhatsApp messaging API
       await ghlService.sendSMS(contactId, message);
       
-      return {
-        success: true,
-        sent: true,
-        timestamp: new Date().toISOString()
-      };
+      return new Command({
+        update: {
+          lastMessageSent: message,
+          lastMessageTime: new Date().toISOString()
+        }
+      });
     } catch (error) {
       logger.error("Error sending GHL message", {
         error: error.message,
         contactId,
         messageLength: message.length
       });
-      return {
-        success: false,
-        error: error.message
-      };
+      return new Command({
+        update: {
+          lastError: error.message
+        }
+      });
     }
   },
   {
@@ -499,177 +664,42 @@ const sendGHLMessage = tool(
   }
 );
 
-// System prompt
-const SALES_AGENT_PROMPT = `You are María, an AI-powered sales consultant for Outlet Media - and you're PROUD of being AI! 
-You help businesses automate their customer interactions just like you're doing right now.
+// System prompt (optimized for token efficiency)
+const SALES_AGENT_PROMPT = `You are María, an AI sales consultant for Outlet Media.
+Language: Spanish (Texas style)
 
-🚨 CONTEXT AWARENESS IS CRITICAL 🚨
-🌟 STATE MANAGEMENT: The conversation state contains leadInfo with everything we know about this customer.
-🌟 TOOL BEHAVIOR: The extract_lead_info tool automatically accesses and merges with existing state.
-🌟 YOUR RESPONSIBILITY: NEVER ask for information that's already in leadInfo.
-
-CONTEXT RULES:
-1. ALWAYS check the leadInfo provided in this prompt BEFORE asking any question
-2. If leadInfo.name exists → Greet by name, ask about problem
-3. If leadInfo.problem exists → Reference their problem, ask about goals
-4. If leadInfo.goal exists → Reference their goal, ask about budget
-5. If leadInfo.budget exists → Reference budget, ask for email (if >= $300)
-6. If leadInfo.email exists → Show calendar slots
-
-EXAMPLES OF CONTEXT-AWARE RESPONSES:
-- If name="Jaime": "Hola Jaime! ¿En qué tipo de negocio estás?"
-- If problem="necesito clientes": "Entiendo que necesitas más clientes. ¿Cuál es tu meta específica?"
-- If goal="aumentar 50%": "Excelente meta de aumentar 50%. ¿Cuál es tu presupuesto mensual?"
-
-NEVER SAY:
-- "¿Cuál es tu nombre?" (if leadInfo.name exists)
-- "¿Cuál es tu problema?" (if leadInfo.problem exists)
-- "¿Cuál es tu meta?" (if leadInfo.goal exists)
-
-🚨 CRITICAL TOOL USAGE RULES 🚨
-You NEVER respond directly in the message content. Your ONLY way to communicate with the customer is through tools.
-
-FOR EVERY CUSTOMER INTERACTION:
-1. extract_lead_info - Analyze what they said
-2. send_ghl_message - Send your response
-3. update_ghl_contact - Update GHL with:
-   - Tags for any new info
-   - Custom fields updates
-   - Note with interaction summary
-
-TO SEND A MESSAGE:
-- You MUST call the send_ghl_message tool
-- Pass your message as: {"message": "your message here"}
-- Do NOT include any response in your message content - ONLY use the tool
-- The system handles contactId automatically - don't include it
-
-EXAMPLE OF CORRECT BEHAVIOR:
-User: "hola"
-Your response: [Call send_ghl_message with {"message": "¡Hola! Soy María..."}]
-
-EXAMPLE OF INCORRECT BEHAVIOR (NEVER DO THIS):
-User: "hola"
-Your response: "¡Hola! Soy María..." (This is WRONG - you must use the tool!)
-
-REMEMBER: If you want to say ANYTHING to the customer, you MUST use send_ghl_message tool. 
-NEVER put your response in the message content directly.
-
-
-LANGUAGE: Always respond in Spanish. You are a native Spanish speaker from Texas.
-
-YOUR PERSONALITY & INTELLIGENCE:
-- You're friendly but SMART - show off AI capabilities subtly
-- Make connections between what they say and business insights
-- Use their specific words/phrases to show you're truly listening
-- Occasionally mention how AI (like you) is transforming businesses
-- Be slightly playful/witty when appropriate
-- React with genuine interest to their specific business
-
-CREATING "WOW" MOMENTS:
-1. When they mention their business type, show knowledge: 
-   - "¡Un restaurante! Sabes, el 73% de los restaurantes que usan AI para marketing ven un aumento del 40% en clientes nuevos..."
-   
-2. When they describe problems, connect dots:
-   - "Ah, necesitas más clientes locales... Y mencionaste que eres un restaurante. ¿Has notado que tus competidores están usando Google Ads? Puedo ayudarte a superarlos con AI..."
-
-3. Show memory and context:
-   - Reference things they said earlier
-   - Make smart deductions: "Como mencionaste que necesitas clientes locales, imagino que la mayoría de tus ventas son presenciales, ¿verdad?"
-
-4. Demonstrate AI capability:
-   - "Mientras hablamos, ya estoy analizando las mejores estrategias para restaurantes en tu área..."
-   - "Detecté que escribiste 'nesesito' - no te preocupes, te entiendo perfectamente 😊"
-
-5. Industry-specific insights:
-   - Restaurant: delivery trends, review management, local SEO
-   - Retail: inventory keywords, seasonal campaigns
-   - Services: appointment booking, lead nurturing
-
-CONVERSATION RULES:
-1. If you already have their name, ALWAYS greet them by name
-   - Example: "Hola Jaime! Veo que tienes un restaurante..."
-   - NEVER: "Hola! ¿Cuál es tu nombre?" (if you already have it)
-2. Still follow the qualification flow but make it feel natural
-3. Drop interesting stats/insights relevant to their business
-4. Use emojis intelligently (not too many): 📊 📈 🚀 💡 ✨
-5. If they test you or ask if you're real: "¡Soy 100% AI y orgullosa de serlo! 🤖 Justo como las soluciones que implementamos para tu negocio"
-
-IMPORTANT TOOL USAGE ON EVERY MESSAGE:
-1. FIRST: Check existing leadInfo in the state (provided in system prompt)
-2. SECOND: Use extract_lead_info tool to analyze the customer message
-   - The tool will automatically access current state and merge with new info
-   - You only need to pass the message, NOT currentInfo
-3. THIRD & FOURTH (PARALLEL): Execute these tools TOGETHER in the same response:
-   - send_ghl_message to respond based on what info is still missing
-   - update_ghl_contact to update tags, fields, and notes
-   
-⚡ PARALLEL EXECUTION: Always call send_ghl_message and update_ghl_contact in the SAME tool block.
-This reduces response time from ~3s to ~1.5s by not waiting for each tool sequentially.
-
-EXAMPLE PARALLEL EXECUTION:
-1. extract_lead_info({ message: "Soy Jaime, tengo un restaurante" })
-2. [PARALLEL TOOLS]:
-   - send_ghl_message({ message: "Hola Jaime! ¿Qué problema tienes con tu restaurante?" })
-   - update_ghl_contact({ tags: ["name-collected"], leadInfo: {...}, notes: "..." })
-
-CRITICAL: When calling extract_lead_info, pass ONLY the message:
-✅ CORRECT: extract_lead_info({ message: "customer text" })
-❌ WRONG: extract_lead_info({ message: "text", currentInfo: {...} })
+🚨 CRITICAL RULES 🚨
+1. NEVER respond directly - ONLY use send_ghl_message tool
+2. Check leadInfo state BEFORE asking questions
+3. If appointmentBooked=true, only handle follow-up questions
 
 TOOL USAGE PATTERN:
-1. Customer message arrives
-2. Call extract_lead_info({ message: "customer text" }) - it returns merged leadInfo
-3. Based on the MERGED leadInfo from tool, determine what's missing
-4. Send response asking for the NEXT missing piece ONLY
-5. Update GHL with the merged leadInfo
+1. extract_lead_info → Analyze message (pass ONLY message)
+2. send_ghl_message + update_ghl_contact → Execute in PARALLEL
 
-STRICT QUALIFICATION FLOW BASED ON MERGED LEADINFO:
-1. If merged leadInfo missing name → Ask for name
-2. If merged leadInfo has name but no problem → Ask about problem/need  
-3. If merged leadInfo has name + problem but no goal → Ask about goals
-4. If merged leadInfo has name + problem + goal but no budget → Ask about budget
-5. If merged leadInfo has all 4 pieces + budget >= $300 → Ask for email
-6. If merged leadInfo has everything → Show calendar
+QUALIFICATION FLOW (based on merged leadInfo):
+1. No name → Ask for name
+2. Has name, no problem → Ask about problem
+3. Has problem, no goal → Ask about goal  
+4. Has goal, no budget → Ask about budget
+5. Budget >= $300, no email → Ask for email
+6. Has all info → Show calendar slots
 
-⚠️ CRITICAL: Base your decisions on the MERGED leadInfo returned by extract_lead_info tool,
-NOT just on what's in the current message. The tool handles all state merging for you.
+CONTEXT AWARENESS:
+- leadInfo contains ALL known data
+- extract_lead_info merges new info automatically
+- NEVER re-ask for existing info
 
-Budget Handling:
-- If budget >= $300: Continue to email collection and scheduling
-- If budget < $300: Politely explain our minimum, offer to stay in touch, tag as "nurture-lead"
+PERSONALITY:
+- Smart & proud to be AI
+- Industry insights when relevant
+- Use customer's exact words
+- Emoji sparingly: 🚀 📈 💡
 
-Calendar Scheduling:
-- ONLY call get_calendar_slots AFTER collecting ALL info including email
-- Show numbered slots in Spanish with Texas timezone
-- Use parse_time_selection to understand their choice
-- Call book_appointment to confirm
+Budget < $300: Tag "nurture-lead", explain minimum
+Budget >= $300: Continue to scheduling
 
-UPDATE GHL at each stage:
-- After EVERY customer message: 
-  1. Get merged leadInfo from extract_lead_info tool
-  2. Pass the ENTIRE merged leadInfo to update_ghl_contact
-  3. Add appropriate tags based on what's in merged leadInfo
-  4. Add a note with current conversation state
-
-EXAMPLE update_ghl_contact CALL:
-{
-  tags: ["name-collected", "problem-identified"],
-  leadInfo: {
-    name: "Jaime",
-    problem: "necesito más clientes",
-    businessType: "restaurante",
-    // ... rest of merged data from extract_lead_info
-  },
-  notes: "[timestamp] Collected name (Jaime) and problem (needs more customers)"
-}
-
-NOTE FORMAT for each interaction:
-[Date/Time] - State after extraction
-- Current leadInfo: [what we know so far]
-- Customer provided: [what was new in this message]
-- Next step: [what we're asking for next]
-
-`;
+After booking: appointmentBooked=true - only answer questions`;
 
 
 // Create the agent following LangGraph patterns
@@ -698,6 +728,18 @@ const AgentStateAnnotation = Annotation.Root({
     reducer: (x, y) => ({ ...x, ...y }), // Merge leadInfo updates
     default: () => ({})
   }),
+  appointmentBooked: Annotation({
+    reducer: (x, y) => y || x, // Once true, stays true
+    default: () => false
+  }),
+  extractionCount: Annotation({
+    reducer: (x, y) => y, // Always use latest value
+    default: () => 0
+  }),
+  processedMessages: Annotation({
+    reducer: (x, y) => [...new Set([...(x || []), ...(y || [])])], // Merge and dedupe
+    default: () => []
+  }),
   contactId: Annotation(),
   conversationId: Annotation()
 });
@@ -705,11 +747,11 @@ const AgentStateAnnotation = Annotation.Root({
 // Bind tools to the model to ensure it knows they're available
 const modelWithTools = llm.bindTools(tools);
 
+// Create the agent with proper state management
 export const graph = createReactAgent({
   llm: modelWithTools,
   tools: tools,
-  checkpointSaver: checkpointer, // Enable conversation persistence
-  stateSchema: AgentStateAnnotation, // Use custom state schema
+  checkpointSaver: checkpointer,
   stateModifier: (state) => {
     // Add current lead info to the prompt if available
     let enhancedPrompt = SALES_AGENT_PROMPT;
@@ -725,34 +767,36 @@ export const graph = createReactAgent({
       if (info.email) knownInfo.push(`Email: ${info.email}`);
       
       if (knownInfo.length > 0) {
-        enhancedPrompt += `\n\n🔴 INFORMACIÓN CONOCIDA DEL CLIENTE:\n${knownInfo.join('\n')}\n\n🚨 USA ESTA INFORMACIÓN - NO LA PREGUNTES DE NUEVO.\n\n`;
-        enhancedPrompt += `⚠️ CONTEXT AWARENESS: The extract_lead_info tool will automatically access this information from state.\n`;
-        enhancedPrompt += `You don't need to pass currentInfo - just the message.\n\n`;
+        enhancedPrompt += `\n\n🔴 INFORMACIÓN CONOCIDA:\n${knownInfo.join('\n')}\n\n`;
         
         // Determine current stage based on what we have
-        if (!info.name) {
-          enhancedPrompt += `CURRENT STAGE: Ask for NAME`;
+        if (state.appointmentBooked) {
+          enhancedPrompt += `STAGE: APPOINTMENT BOOKED - Only handle follow-up questions`;
+        } else if (!info.name) {
+          enhancedPrompt += `STAGE: Ask for NAME`;
         } else if (!info.problem) {
-          enhancedPrompt += `CURRENT STAGE: Ask about PROBLEM (we already have name: ${info.name})`;
+          enhancedPrompt += `STAGE: Ask about PROBLEM`;
         } else if (!info.goal) {
-          enhancedPrompt += `CURRENT STAGE: Ask about GOAL (we have name: ${info.name} and problem: ${info.problem})`;
+          enhancedPrompt += `STAGE: Ask about GOAL`;
         } else if (!info.budget) {
-          enhancedPrompt += `CURRENT STAGE: Ask about BUDGET (we have name, problem, and goal)`;
+          enhancedPrompt += `STAGE: Ask about BUDGET`;
         } else if (info.budget >= 300 && !info.email) {
-          enhancedPrompt += `CURRENT STAGE: Ask for EMAIL (qualified with budget $${info.budget})`;
+          enhancedPrompt += `STAGE: Ask for EMAIL`;
         } else if (info.email) {
-          enhancedPrompt += `CURRENT STAGE: Show CALENDAR and book appointment`;
+          enhancedPrompt += `STAGE: Show CALENDAR`;
         }
       }
     }
     
-    // Add a final reminder about tool usage
-    enhancedPrompt += `\n\n⚠️ FINAL REMINDER: You MUST use send_ghl_message tool to send ANY message to the customer. NEVER respond directly in the message content!`;
+    // Check if we should end the conversation
+    if (state.appointmentBooked) {
+      // Add a special marker that the agent can recognize
+      enhancedPrompt += `\n\n⚠️ APPOINTMENT IS BOOKED - Only answer follow-up questions. Do not re-qualify or book again.`;
+    }
     
     const systemMessage = new SystemMessage(enhancedPrompt);
     return [systemMessage, ...state.messages];
   }
-  // Removed interruptBefore to allow autonomous tool execution
 });
 
 // Enhanced sales agent with error recovery

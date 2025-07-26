@@ -5,16 +5,5 @@
     "sales_agent": "./agents/salesAgent.js:graph",
     "webhook_handler": "./agents/webhookHandler.js:graph"
   },
-  "env": ".env",
-  "runtime_config": {
-    "worker_timeout": 300,
-    "max_memory": 1024,
-    "health_check_interval": 30,
-    "graceful_shutdown_timeout": 180,
-    "queue_config": {
-      "visibility_timeout": 60,
-      "max_retries": 3,
-      "retry_delay": 5000
-    }
-  }
+  "env": ".env"
 }

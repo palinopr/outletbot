@@ -4,8 +4,10 @@
   "description": "Spanish AI Sales Bot with Public Webhooks",
   "main": "agents/salesAgent.js",
   "scripts": {
-    "test": "node test-components.js",
-    "test:components": "node test-components.js",
+    "test": "node tests/test-components.js",
+    "test:components": "node tests/test-components.js",
+    "test:webhook": "node tests/test-webhook.js",
+    "test:webhook:real": "node tests/test-webhook.js real",
     "build": "npx @langchain/langgraph-cli build -t outlet-media-bot",
     "dev": "npx @langchain/langgraph-cli dev"
   },

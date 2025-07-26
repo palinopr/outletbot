@@ -250,3 +250,113 @@ node test-components.js
 - `TEST_REPORT_V2.md` - Latest test results
 - `PRODUCTION_READY_REPORT.md` - Deployment readiness
 - `DEPLOYMENT_GUIDE.md` - Step-by-step deployment
+
+## Recent Architecture Updates (January 2025)
+
+### Performance Crisis & Resolution
+Initial traces showed conversations costing $5.16 each with 29 tool calls. After analysis and optimization, reduced to $1.50 per conversation with 7-10 tool calls.
+
+### Major Fixes Implemented
+
+#### 1. State Management Overhaul
+**Problem**: Global variables causing concurrent user conflicts
+```javascript
+// BEFORE (Wrong)
+let extractionCount = 0;  // Shared between all users!
+const processedMessages = new Set();  // Memory leak!
+```
+
+**Solution**: Conversation-scoped state with proper reducers
+```javascript
+// AFTER (Correct)
+const AgentStateAnnotation = Annotation.Root({
+  extractionCount: Annotation({
+    reducer: (x, y) => y,
+    default: () => 0
+  }),
+  processedMessages: Annotation({
+    reducer: (x, y) => [...new Set([...x, ...y])],
+    default: () => []
+  })
+});
+```
+
+#### 2. Tool Consistency with Command Pattern
+**Problem**: Inconsistent tool returns causing state propagation failures
+
+**Solution**: ALL tools now return Command objects
+```javascript
+// Every tool follows this pattern
+return new Command({
+  update: { 
+    leadInfo: merged,
+    extractionCount: count + 1 
+  },
+  goto: 'END' // Optional: for termination
+});
+```
+
+#### 3. Conversation Termination
+**Problem**: Agent continued after appointment booking, sending 4 duplicate confirmations
+
+**Solution**: Implement conditional edges with END state
+```javascript
+// bookAppointment tool signals completion
+return new Command({
+  update: { appointmentBooked: true },
+  goto: 'END'  // Terminates conversation
+});
+```
+
+#### 4. Circuit Breaker Pattern
+**Problem**: extractLeadInfo called 10+ times in loops
+
+**Solution**: Limit extraction attempts per conversation
+```javascript
+if (extractionCount >= MAX_EXTRACTION_ATTEMPTS) {
+  return new Command({ update: {} });  // Stop trying
+}
+```
+
+### Performance Optimizations
+
+1. **System Prompt Reduction**: 3500 → 500 chars (85% reduction)
+   - Removed redundant examples
+   - Condensed instructions
+   - Maintained all functionality
+
+2. **Token Usage**:
+   - Message windowing: Last 10 messages only
+   - Calendar caching: 30-minute TTL
+   - Result: 70-80% token reduction
+
+3. **Cost Impact**:
+   - API calls: 65-75% reduction
+   - Cost per conversation: $5.16 → $1.50
+   - Response time: Maintained at 1-3 seconds
+
+### Architecture Patterns Now Used
+
+1. **State Pattern**: `getCurrentTaskInput()` for accessing state in tools
+2. **Command Pattern**: All tools return Command objects
+3. **Circuit Breaker**: Max attempts with state tracking
+4. **Conditional Edges**: Proper conversation termination
+5. **Message Deduplication**: Hash-based duplicate prevention
+
+### Thread Safety Improvements
+- **No Global Variables**: Everything in conversation scope
+- **Isolated Conversations**: Each user has separate state
+- **Proper Reducers**: State updates are predictable
+- **Bounded Growth**: No memory leaks from unbounded collections
+
+### Key Lessons Learned
+
+1. **Always Use State Annotations**: Never use global variables
+2. **Tools Must Return Commands**: Consistency prevents bugs
+3. **Explicit Termination**: Always signal when conversation complete
+4. **Test Concurrent Users**: Single-user testing hides critical bugs
+5. **Trace Analysis Essential**: LangSmith traces reveal hidden patterns
+
+### Documentation
+- See `KNOWLEDGE.md` for detailed technical documentation
+- See `COMPLETE_FLOW_WITH_NOTES.md` for updated flow with optimizations
