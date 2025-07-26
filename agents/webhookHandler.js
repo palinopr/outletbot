@@ -6,9 +6,13 @@ import { StateGraph, MessagesAnnotation, Annotation, END, START } from '@langcha
 import crypto from 'crypto';
 import { Logger } from '../services/logger.js';
 import { config } from '../services/config.js';
+import { configureLangSmith } from '../services/langsmithConfig.js';
 
 // Initialize logger
 const logger = new Logger('webhookHandler');
+
+// Configure LangSmith to prevent multipart errors
+configureLangSmith();
 
 // Initialize services with lazy loading
 let ghlService;
@@ -123,7 +127,8 @@ async function initialize(retries = 3) {
  */
 async function webhookHandlerNode(state, config) {
   const startTime = Date.now();
-  const traceId = config?.runId || 'no-trace-id';
+  // Generate a proper UUID if no runId provided
+  const traceId = config?.runId || crypto.randomUUID();
   
   logger.info('🔍 WEBHOOK HANDLER START', {
     traceId,

@@ -4,6 +4,7 @@ import { z } from "zod";
 import { ChatOpenAI } from "@langchain/openai";
 import { SystemMessage, AIMessage } from "@langchain/core/messages";
 import { MemorySaver, Annotation, Command, MessagesAnnotation } from '@langchain/langgraph';
+import crypto from 'crypto';
 import { Logger } from '../services/logger.js';
 import { config } from '../services/config.js';
 import { metrics } from '../services/monitoring.js';
@@ -863,7 +864,8 @@ export const graph = salesAgent;
 
 // Enhanced sales agent wrapper with error recovery
 export async function salesAgentInvoke(input, agentConfig) {
-  const traceId = agentConfig?.runId || 'no-trace-id';
+  // Use provided runId or generate a valid UUID
+  const traceId = agentConfig?.runId || crypto.randomUUID();
   
   logger.info('🤖 SALES AGENT INVOKED', {
     traceId,

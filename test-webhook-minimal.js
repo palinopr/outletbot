@@ -1,7 +1,15 @@
 import { graph } from './agents/webhookHandler.js';
 import { config } from 'dotenv';
+import { setupTestEnvironment } from './tests/test-setup.js';
 
 config();
+
+// Setup test environment with validation
+try {
+  setupTestEnvironment();
+} catch (error) {
+  process.exit(1);
+}
 
 console.log('🧪 MINIMAL WEBHOOK TEST');
 console.log('=====================\n');
