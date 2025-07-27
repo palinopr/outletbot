@@ -285,25 +285,26 @@ const extractLeadInfo = tool(
         }
       }
       
-      const prompt = `Analyze this customer message IN THE CONTEXT of the conversation:
-
-CONVERSATION CONTEXT:
-${conversationContext}
+      const prompt = `Analyze ONLY this CURRENT customer message (DO NOT extract from conversation history):
 
 CURRENT MESSAGE TO ANALYZE: "${message}"
 
-IMPORTANT CONTEXT RULES:
-1. If customer says "all", "todo", "toda la información" after a multi-part question - they're responding to ALL parts
-2. If customer says "si", "sí", "yes" - they're confirming what was asked in the previous message
-3. If assistant asked about budget and customer responds with just a number (like "500") - that's the budget
-4. If assistant asked for name and customer responds with just a name - extract it
-5. If assistant asked "Is your budget $X?" and customer says "si" - extract budget: X
+CONVERSATION CONTEXT (for understanding only, DO NOT extract info from here):
+${conversationContext}
 
-Last assistant message: "${lastAssistantQuestion}"
+IMPORTANT CONTEXT RULES:
+1. ONLY extract information that appears in the CURRENT MESSAGE above
+2. If customer says "all", "todo", "toda la información" after a multi-part question - they're responding to ALL parts
+3. If customer says "si", "sí", "yes" - they're confirming what was asked in the previous message
+4. If assistant asked about budget and customer responds with just a number (like "500") - that's the budget in current message
+5. If assistant asked for name and customer responds with just a name in current message - extract it
+6. If assistant asked "Is your budget $X?" and customer says "si" in current message - extract budget: X
+
+Last assistant message (for context only): "${lastAssistantQuestion}"
 
 Current info we already have: ${JSON.stringify(currentInfo)}
 
-Extract any NEW information (if mentioned):
+Extract any NEW information from the CURRENT MESSAGE ONLY (if mentioned):
 - name (person's name)
 - businessType (restaurant, store, clinic, salon, etc)
 - problem (their pain point or challenge - e.g., "no tengo clientes", "necesito más ventas", "nesesito mas clientez" (with typos))
@@ -1067,6 +1068,12 @@ Language: Spanish (Texas style)
 4. FIRST call extract_lead_info on EVERY customer message to update leadInfo
 5. THEN check leadInfo state to decide what to do next
 6. EVERY response to the customer MUST go through send_ghl_message tool
+
+🎯 RESPONSE RULES:
+- ONLY respond to the LATEST human message (the last HumanMessage in the conversation)
+- Previous messages are for CONTEXT ONLY - to understand what info was already collected
+- NEVER respond to AI messages or your own previous responses
+- If you see your own messages in history, IGNORE them - they're just for context
 
 STATE CHECKING RULES:
 - ALWAYS check the leadInfo object in state before asking questions
