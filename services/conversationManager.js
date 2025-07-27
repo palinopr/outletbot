@@ -13,6 +13,8 @@ export class ConversationManager {
     // Configuration for conversation windowing
     this.maxMessagesInWindow = config.maxMessagesInConversation;
     this.enableSummarization = config.features.enableSummarization;
+    // Context isolation window - only use messages from last N hours
+    this.contextWindowHours = config.contextWindowHours || 2; // Default 2 hours
   }
 
   // Get conversation state from GHL
@@ -74,13 +76,24 @@ export class ConversationManager {
 
       // Get conversation messages from GHL
       const msgStartTime = Date.now();
-      const ghlMessages = await this.ghlService.getConversationMessages(conversationId);
+      const allGhlMessages = await this.ghlService.getConversationMessages(conversationId);
+      
+      // CRITICAL FIX: Only use recent messages to prevent context contamination
+      const contextWindowMs = this.contextWindowHours * 60 * 60 * 1000;
+      const cutoffTime = new Date(Date.now() - contextWindowMs);
+      const ghlMessages = allGhlMessages.filter(msg => {
+        const messageTime = new Date(msg.dateAdded);
+        return messageTime > cutoffTime;
+      });
+      
       this.logger.info('✅ MESSAGES FETCHED FROM GHL', {
-        messageCount: ghlMessages.length,
+        totalMessages: allGhlMessages.length,
+        recentMessages: ghlMessages.length,
         conversationId,
         fetchTime: Date.now() - msgStartTime,
         inbound: ghlMessages.filter(m => m.direction === 'inbound').length,
-        outbound: ghlMessages.filter(m => m.direction === 'outbound').length
+        outbound: ghlMessages.filter(m => m.direction === 'outbound').length,
+        windowApplied: allGhlMessages.length > ghlMessages.length
       });
       
       // Apply windowing if needed

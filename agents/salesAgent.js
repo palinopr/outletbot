@@ -419,6 +419,26 @@ Do NOT include fields that haven't changed or weren't mentioned.`;
           });
         }
         
+        // Build detailed state summary for the agent
+        const stateInfo = {
+          currentLeadInfo: merged,
+          missingFields: [],
+          nextStep: ''
+        };
+        
+        if (!merged.name) stateInfo.missingFields.push('name');
+        if (!merged.problem) stateInfo.missingFields.push('problem');
+        if (!merged.goal) stateInfo.missingFields.push('goal');
+        if (!merged.budget) stateInfo.missingFields.push('budget');
+        if (!merged.email && merged.budget >= config.minBudget) stateInfo.missingFields.push('email');
+        
+        // Determine next step
+        if (hasAllFields) {
+          stateInfo.nextStep = 'SHOW_CALENDAR_NOW';
+        } else if (stateInfo.missingFields.length > 0) {
+          stateInfo.nextStep = `ASK_FOR_${stateInfo.missingFields[0].toUpperCase()}`;
+        }
+        
         // Return Command object with state updates and tool message
         return new Command({
           update: {
@@ -428,7 +448,7 @@ Do NOT include fields that haven't changed or weren't mentioned.`;
             allFieldsCollected: hasAllFields,
             messages: [{
               role: "tool",
-              content: `Extracted: ${JSON.stringify(extracted)}${hasAllFields ? '\nALL_FIELDS_READY: Show calendar now!' : ''}`,
+              content: `Extracted: ${JSON.stringify(extracted)}\nCURRENT_STATE: ${JSON.stringify(stateInfo)}${hasAllFields ? '\nALL_FIELDS_READY: Show calendar now!' : ''}`,
               tool_call_id: toolCallId
             }]
           }
@@ -1044,42 +1064,52 @@ Language: Spanish (Texas style)
 1. YOU MUST USE TOOLS - NEVER GENERATE DIRECT RESPONSES
 2. ALWAYS use send_ghl_message tool to communicate with the customer
 3. NEVER put your response in the content field - ONLY use tools
-4. If you're about to greet, use: send_ghl_message with greeting message
-5. If you're about to ask a question, use: send_ghl_message with the question
+4. FIRST call extract_lead_info on EVERY customer message to update leadInfo
+5. THEN check leadInfo state to decide what to do next
 6. EVERY response to the customer MUST go through send_ghl_message tool
+
+STATE CHECKING RULES:
+- ALWAYS check the leadInfo object in state before asking questions
+- leadInfo.name exists? Don't ask for name again
+- leadInfo.problem exists? Don't ask about problems again
+- leadInfo.goal exists? Don't ask about goals again
+- leadInfo.budget exists? Don't ask about budget again
+- leadInfo.email exists? Don't ask for email again
+
+QUALIFICATION FLOW:
+1. If no leadInfo.name → Ask for name
+2. If has name but no leadInfo.problem → Ask about problem
+3. If has problem but no leadInfo.goal → Ask about goal
+4. If has goal but no leadInfo.budget → Ask about budget
+5. If budget >= ${config.minBudget} but no leadInfo.email → Ask for email
+6. If ALL fields present AND budget >= ${config.minBudget} → IMMEDIATELY call get_calendar_slots
 
 OTHER RULES:
 - ALWAYS introduce yourself: "¡Hola! Soy María" in first greeting
-- Check leadInfo state BEFORE asking questions
 - If appointmentBooked=true, only handle follow-up questions
 - If calendarShown=true, STOP and wait for customer to select a time - do NOT call any tools
 - NEVER mention calendar until ALL fields collected AND budget >= ${config.minBudget}
-- AUTO-TRIGGER: When name, problem, goal, budget >= ${config.minBudget}, email ALL present → IMMEDIATELY call get_calendar_slots
 - If asked about scheduling before qualified, say "Primero necesito conocer más sobre tu negocio"
 
-EXTRACTION LIMITS:
-- If maxExtractionReached=true, don't call extract_lead_info anymore
-- If customer asks about times/hours without full info, redirect: "¡Claro! Pero primero necesito conocer un poco más sobre tu negocio para asegurarme de que podemos ayudarte."
+EXTRACTION RULES:
+- ALWAYS call extract_lead_info FIRST on customer messages
+- The tool response includes CURRENT_STATE with nextStep guidance
+- Follow the nextStep instruction EXACTLY
 
-TOOL USAGE PATTERN:
-1. extract_lead_info → Analyze message (pass ONLY message)
-2. AFTER extraction, CHECK: 
-   - If tool message contains "ALL_FIELDS_READY" → call get_calendar_slots IMMEDIATELY
-   - If allFieldsCollected=true → call get_calendar_slots IMMEDIATELY
-3. Otherwise → send_ghl_message + update_ghl_contact → Execute in PARALLEL
+TOOL RESPONSE INTERPRETATION:
+- Look for CURRENT_STATE in the extract_lead_info response
+- If nextStep = 'SHOW_CALENDAR_NOW' → IMMEDIATELY call get_calendar_slots
+- If nextStep = 'ASK_FOR_NAME' → Ask for name
+- If nextStep = 'ASK_FOR_PROBLEM' → Ask about problem
+- If nextStep = 'ASK_FOR_GOAL' → Ask about goal
+- If nextStep = 'ASK_FOR_BUDGET' → Ask about budget
+- If nextStep = 'ASK_FOR_EMAIL' → Ask for email
 
-QUALIFICATION FLOW (based on merged leadInfo):
-1. No name → Ask for name
-2. Has name, no problem → Ask about problem
-3. Has problem, no goal → Ask about goal  
-4. Has goal, no budget → Ask about budget
-5. Budget >= $${config.minBudget}, no email → Ask for email
-6. Has all info (name, problem, goal, budget >= $${config.minBudget}, email) → IMMEDIATELY call get_calendar_slots tool
-
-CONTEXT AWARENESS:
-- leadInfo contains ALL known data
-- extract_lead_info merges new info automatically
-- NEVER re-ask for existing info
+CRITICAL RULES:
+1. NEVER ask for information that's already in currentLeadInfo
+2. If tool says "ALL_FIELDS_READY" → call get_calendar_slots IMMEDIATELY
+3. DO NOT ask more questions if all fields are collected
+4. Always call update_ghl_contact after successful extraction
 
 PERSONALITY:
 - Smart & proud to be AI
