@@ -1,0 +1,82 @@
+{
+  "traceId": "1f06b149-1474-6632-a410-d17d5656da98",
+  "contactId": "ym8G7K6GSzm8dJDZ6BNo",
+  "timestamp": "2025-07-27T18:10:14.688Z",
+  "overview": {
+    "name": "LangGraph",
+    "status": "success",
+    "duration": "0.87",
+    "error": null
+  },
+  "inputs": {
+    "messages": [
+      {
+        "role": "human",
+        "content": "{\"phone\": \"(305) 487-0475\", \"message\": \"Hola\",   \"contactId\": \"ym8G7K6GSzm8dJDZ6BNo\"}"
+      }
+    ]
+  },
+  "outputs": {
+    "messages": [
+      {
+        "lc": 1,
+        "type": "constructor",
+        "id": [
+          "langchain_core",
+          "messages",
+          "HumanMessage"
+        ],
+        "kwargs": {
+          "content": "{\"phone\": \"(305) 487-0475\", \"message\": \"Hola\",   \"contactId\": \"ym8G7K6GSzm8dJDZ6BNo\"}",
+          "additional_kwargs": {},
+          "response_metadata": {},
+          "id": "13746719-d390-48de-ac35-1aec251adb14"
+        }
+      },
+      {
+        "lc": 1,
+        "type": "constructor",
+        "id": [
+          "langchain_core",
+          "messages",
+          "HumanMessage"
+        ],
+        "kwargs": {
+          "content": "Hola",
+          "additional_kwargs": {},
+          "response_metadata": {},
+          "id": "ca2269ba-a150-440d-8eac-accadf009a5e"
+        }
+      },
+      {
+        "lc": 1,
+        "type": "constructor",
+        "id": [
+          "langchain_core",
+          "messages",
+          "HumanMessage"
+        ],
+        "kwargs": {
+          "content": "Hola",
+          "additional_kwargs": {},
+          "response_metadata": {},
+          "id": "4e93ac53-e420-4438-9e11-c9abdc922994"
+        }
+      }
+    ],
+    "contactId": "ym8G7K6GSzm8dJDZ6BNo",
+    "phone": "(305) 487-0475",
+    "leadInfo": {
+      "name": "Jaime",
+      "problem": null,
+      "goal": null,
+      "budget": null,
+      "phone": "+13054870475"
+    }
+  },
+  "toolCalls": [],
+  "issues": [
+    "No tool calls executed - agent may not be processing correctly",
+    "No messages sent to customer"
+  ]
+}

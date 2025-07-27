@@ -256,7 +256,8 @@ async function webhookHandlerNode(state, config) {
   // Parse webhook payload from message content
   let webhookData;
   try {
-    if (typeof lastMessage.content === 'string' && lastMessage.content.trim().startsWith('{')) {
+    // Check if this is the initial webhook call with JSON payload
+    if (state.messages.length === 1 && typeof lastMessage.content === 'string' && lastMessage.content.trim().startsWith('{')) {
       webhookData = JSON.parse(lastMessage.content);
       logger.debug('Parsed JSON webhook payload', {
         keys: Object.keys(webhookData),
@@ -264,6 +265,16 @@ async function webhookHandlerNode(state, config) {
         hasMessage: !!webhookData.message,
         hasContactId: !!webhookData.contactId
       });
+      
+      // CRITICAL FIX: Replace the JSON message with the actual message content
+      if (webhookData.message) {
+        state.messages = [new HumanMessage(webhookData.message)];
+        logger.info('🔧 FIXED: Extracted actual message from JSON payload', {
+          originalContent: lastMessage.content.substring(0, 100),
+          extractedMessage: webhookData.message,
+          contactId: webhookData.contactId
+        });
+      }
     } else {
       // If not JSON, treat as regular message with contactId from state
       webhookData = {
@@ -405,10 +416,10 @@ async function webhookHandlerNode(state, config) {
   }
   
   // Build messages array for the agent
-  const agentMessages = [
-    ...conversationState.messages,
-    new HumanMessage(message)
-  ];
+  // Note: If we already replaced the JSON message above, use the current state messages
+  const agentMessages = state.messages.length === 1 && webhookData.message ? 
+    [...conversationState.messages, state.messages[0]] :
+    [...conversationState.messages, new HumanMessage(message)];
   
   logger.info('📦 PREPARING AGENT INVOCATION', {
     traceId,

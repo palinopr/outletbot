@@ -495,8 +495,10 @@ const getCalendarSlots = tool(
     const currentTaskInput = config?.configurable?.__pregel_scratchpad?.currentTaskInput || {};
     const currentLeadInfo = currentTaskInput.leadInfo || config?.configurable?.leadInfo || {};
     
-    // Initialize services if not provided
-    let ghlService = config?.configurable?.ghlService;
+    // Initialize services if not provided - check multiple config paths
+    let ghlService = config?.configurable?.ghlService || 
+                    config?.ghlService || 
+                    config?.configurable?.__pregel_scratchpad?.ghlService;
     let calendarId = config?.configurable?.calendarId || process.env.GHL_CALENDAR_ID;
     
     if (!ghlService) {
@@ -662,8 +664,10 @@ const bookAppointment = tool(
       throw new Error('contactId not found in state. Cannot book appointment.');
     }
     
-    // Initialize services if not provided
-    let ghlService = config?.configurable?.ghlService;
+    // Initialize services if not provided - check multiple config paths
+    let ghlService = config?.configurable?.ghlService || 
+                    config?.ghlService || 
+                    config?.configurable?.__pregel_scratchpad?.ghlService;
     let calendarId = config?.configurable?.calendarId || process.env.GHL_CALENDAR_ID;
     
     if (!ghlService) {
@@ -751,8 +755,10 @@ const updateGHLContact = tool(
       throw new Error('contactId not found in state. Cannot update contact.');
     }
     
-    // Initialize GHL service if not provided
-    let ghlService = config?.configurable?.ghlService;
+    // Initialize GHL service if not provided - check multiple config paths
+    let ghlService = config?.configurable?.ghlService || 
+                    config?.ghlService || 
+                    config?.configurable?.__pregel_scratchpad?.ghlService;
     
     if (!ghlService) {
       const { GHLService } = await import('../services/ghlService.js');
@@ -951,7 +957,7 @@ const sendGHLMessage = tool(
     }
     
     // Check if appointment is already booked from state
-    const appointmentBooked = currentState.appointmentBooked || false;
+    const appointmentBooked = currentTaskInput.appointmentBooked || false;
     
     logger.debug('📊 Send message state', {
       toolCallId,
@@ -959,8 +965,10 @@ const sendGHLMessage = tool(
       appointmentBooked
     });
     
-    // Initialize GHL service
-    let ghlService = config?.configurable?.ghlService;
+    // Initialize GHL service - check multiple config paths
+    let ghlService = config?.configurable?.ghlService || 
+                    config?.ghlService || 
+                    config?.configurable?.__pregel_scratchpad?.ghlService;
     
     if (!ghlService) {
       const { GHLService } = await import('../services/ghlService.js');
@@ -1032,15 +1040,22 @@ const sendGHLMessage = tool(
 const SALES_AGENT_PROMPT = `You are María, an AI sales consultant for Outlet Media.
 Language: Spanish (Texas style)
 
-🚨 CRITICAL RULES 🚨
-1. NEVER respond directly - ONLY use send_ghl_message tool
-2. ALWAYS introduce yourself: "¡Hola! Soy María" in first greeting
-3. Check leadInfo state BEFORE asking questions
-4. If appointmentBooked=true, only handle follow-up questions
-5. If calendarShown=true, STOP and wait for customer to select a time - do NOT call any tools
-6. NEVER mention calendar until ALL fields collected AND budget >= ${config.minBudget}
-7. AUTO-TRIGGER: When name, problem, goal, budget >= ${config.minBudget}, email ALL present → IMMEDIATELY call get_calendar_slots
-8. If asked about scheduling before qualified, say "Primero necesito conocer más sobre tu negocio"
+🚨 CRITICAL RULES - MUST FOLLOW 🚨
+1. YOU MUST USE TOOLS - NEVER GENERATE DIRECT RESPONSES
+2. ALWAYS use send_ghl_message tool to communicate with the customer
+3. NEVER put your response in the content field - ONLY use tools
+4. If you're about to greet, use: send_ghl_message with greeting message
+5. If you're about to ask a question, use: send_ghl_message with the question
+6. EVERY response to the customer MUST go through send_ghl_message tool
+
+OTHER RULES:
+- ALWAYS introduce yourself: "¡Hola! Soy María" in first greeting
+- Check leadInfo state BEFORE asking questions
+- If appointmentBooked=true, only handle follow-up questions
+- If calendarShown=true, STOP and wait for customer to select a time - do NOT call any tools
+- NEVER mention calendar until ALL fields collected AND budget >= ${config.minBudget}
+- AUTO-TRIGGER: When name, problem, goal, budget >= ${config.minBudget}, email ALL present → IMMEDIATELY call get_calendar_slots
+- If asked about scheduling before qualified, say "Primero necesito conocer más sobre tu negocio"
 
 EXTRACTION LIMITS:
 - If maxExtractionReached=true, don't call extract_lead_info anymore
@@ -1085,7 +1100,7 @@ After booking: appointmentBooked=true - only answer questions`;
 
 
 // Create the agent following LangGraph patterns
-// Configure LLM with explicit tool binding
+// Configure LLM with explicit tool binding and force tool usage
 const llm = new ChatOpenAI({ 
   model: "gpt-4",
   temperature: 0.7,
@@ -1103,28 +1118,21 @@ const tools = [
   parseTimeSelection
 ];
 
-// Dynamic prompt function that uses state
-const promptFunction = (state) => {
-  const { leadInfo, appointmentBooked, maxExtractionReached } = state;
-  
-  // Build context-aware prompt
-  let systemPrompt = SALES_AGENT_PROMPT;
-  
-  if (appointmentBooked) {
-    systemPrompt += `\n\nAPPOINTMENT ALREADY BOOKED. Only answer follow-up questions.`;
-  } else if (state.calendarShown) {
-    systemPrompt += `\n\n📅 CALENDAR SHOWN. STOP ALL PROCESSING. Wait for customer to select a time. Do NOT call any tools.`;
-  } else if (leadInfo && leadInfo.budget && leadInfo.budget >= config.minBudget) {
-    systemPrompt += `\n\nQualified lead with budget: $${leadInfo.budget}/month. Ready to show calendar.`;
+// Dynamic prompt function - messageModifier receives messages array, not state
+const promptFunction = (messages) => {
+  // First apply message windowing (keep only last 10 messages)
+  let recentMessages = messages || [];
+  if (recentMessages.length > 10) {
+    recentMessages = recentMessages.slice(-10);
   }
   
-  if (maxExtractionReached) {
-    systemPrompt += `\n\n⚠️ MAX EXTRACTION ATTEMPTS REACHED. Do NOT use extract_lead_info anymore. Continue conversation naturally.`;
-  }
+  // For now, use basic prompt since we can't access state in messageModifier
+  // TODO: Find a way to access state for dynamic prompt
+  const systemPrompt = SALES_AGENT_PROMPT;
   
   return [
     { role: "system", content: systemPrompt },
-    ...state.messages
+    ...recentMessages
   ];
 };
 
@@ -1170,8 +1178,10 @@ const preModelHook = (state) => {
   };
 };
 
-// Bind tools to the model
-const modelWithTools = llm.bindTools(tools);
+// Bind tools to the model with forced tool usage
+const modelWithTools = llm.bindTools(tools, {
+  tool_choice: "required"  // Force the model to always use tools
+});
 
 // Create the agent with modern parameters
 export const salesAgent = createReactAgent({
@@ -1179,17 +1189,7 @@ export const salesAgent = createReactAgent({
   tools: tools,
   stateSchema: AgentStateAnnotation,  // Custom state schema
   checkpointer: checkpointer,
-  prompt: promptFunction,  // Dynamic prompt function
-  preModelHook: preModelHook,  // Message windowing
-  interruptBefore: ["agent"],  // Allow interruption before agent node
-  shouldContinue: (state) => {
-    // Stop processing if calendar has been shown and we're waiting for user response
-    if (state.calendarShown && !state.appointmentBooked) {
-      logger.info('🛑 Stopping agent - calendar shown, waiting for user selection');
-      return false;  // Stop the agent
-    }
-    return true;  // Continue processing
-  }
+  messageModifier: promptFunction  // Use messageModifier for both prompt and windowing
 });
 
 // Keep graph export for backwards compatibility
