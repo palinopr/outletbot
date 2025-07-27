@@ -76,7 +76,7 @@ async function waitForActiveRequests(timeout) {
 /**
  * Perform graceful shutdown
  */
-async function gracefulShutdown(signal) {
+export async function gracefulShutdown(signal) {
   if (isShuttingDown) {
     logger.info('Shutdown already in progress');
     return;

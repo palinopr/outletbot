@@ -126,15 +126,7 @@ const circuitBreaker = {
   }
 };
 
-// Clean up old entries periodically
-setInterval(() => {
-  const now = Date.now();
-  for (const [hash, timestamp] of processedMessages.entries()) {
-    if (now - timestamp > MESSAGE_CACHE_TTL) {
-      processedMessages.delete(hash);
-    }
-  }
-}, MESSAGE_CACHE_TTL / 2);
+// Note: Cleanup is already handled by MessageCache class
 
 /**
  * Health check for GHL services
