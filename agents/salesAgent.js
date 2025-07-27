@@ -206,26 +206,34 @@ const extractLeadInfo = tool(
       Current info we already have: ${JSON.stringify(currentInfo)}
       
       Extract any NEW information (if mentioned):
-      - Name
-      - BusinessType (restaurant, store, clinic, salon, etc)
-      - Problem/Pain point
-      - Goal
-      - Budget (IMPORTANT: Look for numbers with "mes", "mensual", "al mes", "por mes", "$". Examples: "500 al mes" = 500, "$1000 mensual" = 1000)
-      - Email
-      - Any specific details about their business
+      - name (person's name)
+      - businessType (restaurant, store, clinic, salon, etc)
+      - problem (their pain point or challenge)
+      - goal (what they want to achieve)
+      - budget (IMPORTANT: Look for numbers with "mes", "mensual", "al mes", "por mes", "$". Examples: "500 al mes" = 500, "$1000 mensual" = 1000)
+      - email (email address)
+      - businessDetails (any specific details about their business)
       
       For budget, if you see a number followed by any monthly indicator, extract just the number.
       
-      Return ONLY a JSON object with any new/updated fields. Do NOT include fields that haven't changed.
-      Example: If current name is "Jaime" and message doesn't mention a different name, don't include "name" in response.`;
+      Return ONLY a JSON object with any new/updated fields using LOWERCASE field names.
+      Example response: {"name": "Carlos", "problem": "no tengo clientes", "budget": 500}
+      
+      Do NOT include fields that haven't changed or weren't mentioned.`;
       
       const response = await llm.invoke([
-        new SystemMessage("You extract information from messages. Return only valid JSON with ONLY new/changed fields."),
+        new SystemMessage("You extract information from messages. Return only valid JSON with ONLY new/changed fields. Use lowercase field names: name, businessType, problem, goal, budget, email, businessDetails."),
         { role: "user", content: prompt }
       ]);
       
       try {
-        const extracted = JSON.parse(response.content);
+        let extracted = JSON.parse(response.content);
+        
+        // Fix common field name issues
+        if ('businesstype' in extracted && !('businessType' in extracted)) {
+          extracted.businessType = extracted.businesstype;
+          delete extracted.businesstype;
+        }
         
         // Only update if there are actual changes
         const hasChanges = Object.keys(extracted).length > 0;
