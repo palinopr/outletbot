@@ -1,5 +1,10 @@
 // Environment variable validation
 export function validateEnvironment() {
+  // Skip validation if explicitly disabled (for testing)
+  if (process.env.SKIP_ENV_VALIDATION === 'true') {
+    return process.env;
+  }
+  
   const requiredEnvVars = [
     'OPENAI_API_KEY',
     'GHL_API_KEY',

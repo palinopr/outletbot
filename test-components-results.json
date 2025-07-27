@@ -1,0 +1,126 @@
+{
+  "timestamp": "2025-07-27T01:02:48.878Z",
+  "results": {
+    "passed": 19,
+    "failed": 0,
+    "tests": [
+      {
+        "name": "Extraction prompt requests lowercase fields",
+        "passed": true,
+        "details": ""
+      },
+      {
+        "name": "Field names are lowercase in prompt",
+        "passed": true,
+        "details": ""
+      },
+      {
+        "name": "Budget extraction instructions present",
+        "passed": true,
+        "details": ""
+      },
+      {
+        "name": "Email extraction pattern present",
+        "passed": true,
+        "details": ""
+      },
+      {
+        "name": "MAX_EXTRACTION_ATTEMPTS defined",
+        "passed": true,
+        "details": ""
+      },
+      {
+        "name": "Extraction count tracking",
+        "passed": true,
+        "details": ""
+      },
+      {
+        "name": "Message deduplication implemented",
+        "passed": true,
+        "details": ""
+      },
+      {
+        "name": "State annotation properly defined",
+        "passed": true,
+        "details": ""
+      },
+      {
+        "name": "No global state variables",
+        "passed": true,
+        "details": ""
+      },
+      {
+        "name": "Proper state reducers",
+        "passed": true,
+        "details": ""
+      },
+      {
+        "name": "All tools return Command objects",
+        "passed": true,
+        "details": "Found 20 Command returns (expected >= 6)"
+      },
+      {
+        "name": "Tools use Zod validation",
+        "passed": true,
+        "details": ""
+      },
+      {
+        "name": "Has all 6 tools",
+        "passed": true,
+        "details": "Found 6 tools"
+      },
+      {
+        "name": "Appointment booking terminates conversation",
+        "passed": true,
+        "details": ""
+      },
+      {
+        "name": "Has conditional edges (or equivalent termination)",
+        "passed": true,
+        "details": ""
+      },
+      {
+        "name": "Uses correct WhatsApp message type",
+        "passed": true,
+        "details": ""
+      },
+      {
+        "name": "Includes required Version header",
+        "passed": true,
+        "details": "Searching for Version header in getHeaders method"
+      },
+      {
+        "name": "Handles nested message structure",
+        "passed": true,
+        "details": ""
+      },
+      {
+        "name": "Extraction prompt includes lowercase instruction",
+        "passed": true,
+        "details": ""
+      }
+    ]
+  },
+  "criticalFixes": [
+    {
+      "name": "Field extraction lowercase fix",
+      "verified": {
+        "name": "Extraction prompt requests lowercase fields",
+        "passed": true,
+        "details": ""
+      }
+    },
+    {
+      "name": "Recursion protection",
+      "verified": true
+    },
+    {
+      "name": "State management",
+      "verified": true
+    },
+    {
+      "name": "Command objects",
+      "verified": true
+    }
+  ]
+}
