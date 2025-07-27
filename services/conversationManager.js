@@ -14,7 +14,7 @@ export class ConversationManager {
     this.maxMessagesInWindow = config.maxMessagesInConversation;
     this.enableSummarization = config.features.enableSummarization;
     // Context isolation window - only use messages from last N hours
-    this.contextWindowHours = config.contextWindowHours || 2; // Default 2 hours
+    this.contextWindowHours = config.contextWindowHours || 0; // Default 0 hours - no conversation memory
   }
 
   // Get conversation state from GHL
