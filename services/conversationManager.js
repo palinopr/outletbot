@@ -78,8 +78,13 @@ export class ConversationManager {
       const msgStartTime = Date.now();
       const allGhlMessages = await this.ghlService.getConversationMessages(conversationId);
       
-      // CRITICAL FIX: NO CONVERSATION MEMORY - return empty array
-      const ghlMessages = [];  // No message history at all
+      // Get messages from GHL for THIS contact's conversation
+      const contextWindowMs = this.contextWindowHours * 60 * 60 * 1000;
+      const cutoffTime = new Date(Date.now() - contextWindowMs);
+      const ghlMessages = allGhlMessages.filter(msg => {
+        const messageTime = new Date(msg.dateAdded);
+        return messageTime > cutoffTime;
+      });
       
       this.logger.info('✅ MESSAGES FETCHED FROM GHL', {
         totalMessages: allGhlMessages.length,

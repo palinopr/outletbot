@@ -766,20 +766,12 @@ export class GHLService {
   // Get or create conversation for contact
   async getOrCreateConversation(contactId, phone = null) {
     try {
-      // If we have a phone number, try searching by phone first
-      if (phone) {
-        const conversationsByPhone = await this.searchConversationsByPhone(phone);
-        if (conversationsByPhone.length > 0) {
-          // Return the most recent conversation
-          const sortedConvs = conversationsByPhone.sort((a, b) => 
-            new Date(b.dateUpdated || b.dateAdded) - new Date(a.dateUpdated || a.dateAdded)
-          );
-          this.logger.info('Using existing conversation found by phone search', {
-            conversationId: sortedConvs[0].id
-          });
-          return sortedConvs[0];
-        }
-      }
+      // SKIP PHONE SEARCH - it's returning wrong conversations
+      // Go directly to contact-based search
+      this.logger.info('Skipping phone search, using contact-based approach', {
+        contactId,
+        phone
+      });
       
       // Try to get existing conversations by contact ID
       const conversations = await this.getContactConversations(contactId);
