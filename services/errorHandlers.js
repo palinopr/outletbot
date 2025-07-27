@@ -1,6 +1,5 @@
 // Global error handlers for production stability
 import { Logger } from './logger.js';
-import { metrics } from './monitoring.js';
 import { gracefulShutdown } from './shutdown.js';
 
 const logger = new Logger('ErrorHandlers');
@@ -25,13 +24,12 @@ export function installGlobalErrorHandlers() {
       promise: promise
     });
     
-    // Track in metrics
-    metrics.increment('errors.unhandled_rejection');
+    // Track unhandled rejection
     
     // In production, we might want to exit after logging
     if (process.env.NODE_ENV === 'production') {
       logger.error('Shutting down due to unhandled rejection');
-      gracefulShutdown(1);
+      gracefulShutdown('unhandled_rejection');
     }
   });
   
@@ -43,24 +41,23 @@ export function installGlobalErrorHandlers() {
       code: error.code
     });
     
-    // Track in metrics
-    metrics.increment('errors.uncaught_exception');
+    // Track uncaught exception
     
     // Always exit on uncaught exception
     logger.error('Shutting down due to uncaught exception');
-    gracefulShutdown(1);
+    gracefulShutdown('uncaught_exception');
   });
   
   // Handle SIGTERM for graceful shutdown
   process.on('SIGTERM', () => {
     logger.info('SIGTERM received, initiating graceful shutdown');
-    gracefulShutdown(0);
+    gracefulShutdown('SIGTERM');
   });
   
   // Handle SIGINT for graceful shutdown (Ctrl+C)
   process.on('SIGINT', () => {
     logger.info('SIGINT received, initiating graceful shutdown');
-    gracefulShutdown(0);
+    gracefulShutdown('SIGINT');
   });
   
   // Handle warning events
@@ -70,7 +67,7 @@ export function installGlobalErrorHandlers() {
       message: warning.message,
       stack: warning.stack
     });
-    metrics.increment('warnings.process');
+    // Track process warning
   });
   
   // Memory usage monitoring
@@ -93,7 +90,7 @@ export function installGlobalErrorHandlers() {
         logger.warn('High memory usage detected', {
           heapPercentage: Math.round((memUsage.heapUsed / memUsage.heapTotal) * 100)
         });
-        metrics.increment('warnings.high_memory');
+        // Track high memory warning
       }
     }, 60000); // Check every minute
   }

@@ -1,7 +1,6 @@
 // Memory management service with TTL and cleanup
 import { MemorySaver } from '@langchain/langgraph';
 import { Logger } from './logger.js';
-import { metrics } from './monitoring.js';
 
 const logger = new Logger('MemoryManager');
 
@@ -107,12 +106,11 @@ export class ManagedMemorySaver extends MemorySaver {
         remaining: this.entryTimestamps.size
       });
       
-      // Track in metrics
-      metrics.increment('memory.cleanup.threads', expiredThreads.length);
+      // Track cleanup completed
     }
     
-    // Update memory metrics
-    metrics.gauge('memory.threads.active', this.entryTimestamps.size);
+    // Log active threads count
+    logger.debug('Active threads', { count: this.entryTimestamps.size });
   }
   
   evictOldest() {

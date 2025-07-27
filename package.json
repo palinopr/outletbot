@@ -1,6 +1,6 @@
 {
   "name": "outlet-media-bot",
-  "version": "2.0.2",
+  "version": "2.0.3",
   "description": "Spanish AI Sales Bot with Public Webhooks - Fixed recursion and deployment",
   "main": "agents/salesAgent.js",
   "scripts": {

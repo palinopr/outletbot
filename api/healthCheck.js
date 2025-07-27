@@ -77,12 +77,13 @@ export function getHealthStatus() {
     healthStatus.services.memory = 'ok';
   }
   
-  // Get metrics summary
+  // Get metrics summary from monitoring service
+  const metricsSummary = metrics.getMetricsSummary();
   healthStatus.metrics = {
-    totalRequests: metrics.get('webhook.requests') || 0,
-    successfulRequests: metrics.get('webhook.success') || 0,
-    failedRequests: metrics.get('webhook.error') || 0,
-    avgResponseTime: metrics.getAverage('webhook.duration') || 0
+    totalRequests: metricsSummary.api.totalRequests || 0,
+    successfulRequests: metricsSummary.api.totalRequests - metricsSummary.api.totalErrors || 0,
+    failedRequests: metricsSummary.api.totalErrors || 0,
+    avgResponseTime: parseInt(metricsSummary.api.avgLatency) || 0
   };
   
   return healthStatus;
