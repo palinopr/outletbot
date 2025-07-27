@@ -9,12 +9,19 @@ import { Logger } from '../services/logger.js';
 import { config } from '../services/config.js';
 import { metrics } from '../services/monitoring.js';
 import { featureFlags, FLAGS } from '../services/featureFlags.js';
+import { ManagedMemorySaver } from '../services/memoryManager.js';
 
 // Initialize logger
 const logger = new Logger('salesAgent');
 
 // Initialize checkpointer for conversation persistence (if enabled)
-const checkpointer = featureFlags.isEnabled(FLAGS.USE_MEMORY_SAVER) ? new MemorySaver() : null;
+const checkpointer = featureFlags.isEnabled(FLAGS.USE_MEMORY_SAVER) 
+  ? new ManagedMemorySaver({ 
+      ttl: 3600000, // 1 hour
+      maxEntries: 1000,
+      cleanupInterval: 300000 // 5 minutes
+    }) 
+  : null;
 
 // Agent configuration with timeout and retry handling
 const AGENT_CONFIG = {
@@ -380,12 +387,12 @@ const getCalendarSlots = tool(
     }
     
     // Budget must be qualified
-    if (currentLeadInfo.budget < 300) {
+    if (currentLeadInfo.budget < config.minBudget) {
       return new Command({
         update: {
           messages: [{
             role: "tool",
-            content: `Cannot fetch slots - budget under $300/month (current: $${currentLeadInfo.budget})`,
+            content: `Cannot fetch slots - budget under $${config.minBudget}/month (current: $${currentLeadInfo.budget})`,
             tool_call_id: toolCallId
           }]
         }
@@ -876,7 +883,7 @@ Language: Spanish (Texas style)
 1. NEVER respond directly - ONLY use send_ghl_message tool
 2. Check leadInfo state BEFORE asking questions
 3. If appointmentBooked=true, only handle follow-up questions
-4. NEVER mention calendar, scheduling, or appointments until leadInfo has ALL fields (name, problem, goal, budget >= $300, email)
+4. NEVER mention calendar, scheduling, or appointments until leadInfo has ALL fields (name, problem, goal, budget >= ${config.minBudget}, email)
 5. If asked about scheduling before qualified, say "Primero necesito conocer más sobre tu negocio"
 
 EXTRACTION LIMITS:
@@ -892,7 +899,7 @@ QUALIFICATION FLOW (based on merged leadInfo):
 2. Has name, no problem → Ask about problem
 3. Has problem, no goal → Ask about goal  
 4. Has goal, no budget → Ask about budget
-5. Budget >= $300, no email → Ask for email
+5. Budget >= $${config.minBudget}, no email → Ask for email
 6. Has all info → Show calendar slots
 
 CONTEXT AWARENESS:
@@ -906,8 +913,8 @@ PERSONALITY:
 - Use customer's exact words
 - Emoji sparingly: 🚀 📈 💡
 
-Budget < $300: Tag "nurture-lead", explain minimum
-Budget >= $300: Continue to scheduling
+Budget < $${config.minBudget}: Tag "nurture-lead", explain minimum
+Budget >= $${config.minBudget}: Continue to scheduling
 
 After booking: appointmentBooked=true - only answer questions`;
 
@@ -940,7 +947,7 @@ const promptFunction = (state) => {
   
   if (appointmentBooked) {
     systemPrompt += `\n\nAPPOINTMENT ALREADY BOOKED. Only answer follow-up questions.`;
-  } else if (leadInfo && leadInfo.budget && leadInfo.budget >= 300) {
+  } else if (leadInfo && leadInfo.budget && leadInfo.budget >= config.minBudget) {
     systemPrompt += `\n\nQualified lead with budget: $${leadInfo.budget}/month. Ready to show calendar.`;
   }
   

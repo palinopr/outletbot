@@ -9,9 +9,14 @@ import { config } from '../services/config.js';
 import { configureLangSmith } from '../services/langsmithConfig.js';
 import { interceptLangSmithRequests } from '../services/uuidInterceptor.js';
 import { getTimeout, getErrorMessage } from '../production-fixes.js';
+import { installGlobalErrorHandlers } from '../services/errorHandlers.js';
+import { onShutdown } from '../services/shutdown.js';
 
 // Initialize logger
 const logger = new Logger('webhookHandler');
+
+// Install global error handlers
+installGlobalErrorHandlers();
 
 // Configure LangSmith to prevent multipart errors
 configureLangSmith();
@@ -23,9 +28,70 @@ interceptLangSmithRequests();
 let ghlService;
 let conversationManager;
 
-// Message deduplication cache
-const processedMessages = new Map();
-const MESSAGE_CACHE_TTL = config.features.enableDeduplication ? 10 * 60 * 1000 : 0; // 10 minutes if enabled
+// Message deduplication cache with automatic cleanup
+class MessageCache {
+  constructor(ttl = 10 * 60 * 1000) {
+    this.cache = new Map();
+    this.ttl = config.features.enableDeduplication ? ttl : 0;
+    
+    // Start cleanup interval if deduplication is enabled
+    if (this.ttl > 0) {
+      this.cleanupInterval = setInterval(() => this.cleanup(), 60000); // Clean every minute
+    }
+  }
+  
+  add(key, value = Date.now()) {
+    if (this.ttl === 0) return;
+    this.cache.set(key, { timestamp: value, data: true });
+  }
+  
+  has(key) {
+    if (this.ttl === 0) return false;
+    const entry = this.cache.get(key);
+    if (!entry) return false;
+    
+    // Check if expired
+    if (Date.now() - entry.timestamp > this.ttl) {
+      this.cache.delete(key);
+      return false;
+    }
+    return true;
+  }
+  
+  cleanup() {
+    const now = Date.now();
+    for (const [key, entry] of this.cache.entries()) {
+      if (now - entry.timestamp > this.ttl) {
+        this.cache.delete(key);
+      }
+    }
+    logger.debug('Message cache cleanup', { 
+      size: this.cache.size,
+      ttl: this.ttl 
+    });
+  }
+  
+  clear() {
+    this.cache.clear();
+  }
+  
+  stop() {
+    if (this.cleanupInterval) {
+      clearInterval(this.cleanupInterval);
+    }
+    this.clear();
+  }
+}
+
+const processedMessages = new MessageCache();
+
+// Register cleanup on shutdown
+if (typeof onShutdown === 'function') {
+  onShutdown(() => {
+    logger.info('Stopping message cache cleanup');
+    processedMessages.stop();
+  });
+}
 
 // Circuit breaker for production stability
 const circuitBreaker = {
@@ -255,7 +321,7 @@ async function webhookHandlerNode(state, config) {
   // Check if we've already processed this exact message recently
   const enableDeduplication = config?.configurable?.features?.enableDeduplication ?? true;
   if (enableDeduplication && processedMessages.has(messageHash)) {
-    const processedTime = processedMessages.get(messageHash);
+    const processedTime = Date.now();
     const timeSince = Date.now() - processedTime;
     logger.info('🔁 DUPLICATE MESSAGE DETECTED', {
       traceId,
@@ -275,7 +341,7 @@ async function webhookHandlerNode(state, config) {
   
   // Mark message as processed
   if (enableDeduplication) {
-    processedMessages.set(messageHash, Date.now());
+    processedMessages.add(messageHash, Date.now());
     logger.debug('📌 Message marked as processed', {
       traceId,
       hash: messageHash,
