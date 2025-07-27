@@ -1,0 +1,34 @@
+================================================================================
+TRACE ANALYSIS REPORT
+================================================================================
+
+Trace ID: 7a047d34-d752-4f1b-8819-b01d61c47e03
+Trace Name: LangGraph
+Status: success
+Duration: 5.51s
+
+📨 CONVERSATION FLOW:
+----------------------------------------
+
+[1] AI:
+
+
+
+🔧 TOOL CALLS:
+----------------------------------------
+
+
+📋 EXTRACTED FIELDS:
+----------------------------------------
+name: ❌ NOT EXTRACTED
+problem: ❌ NOT EXTRACTED
+goal: ❌ NOT EXTRACTED
+budget: ❌ NOT EXTRACTED
+email: ❌ NOT EXTRACTED
+phone: ❌ NOT EXTRACTED
+
+
+📊 ANALYSIS SUMMARY:
+----------------------------------------
+- extractLeadInfo called 0 times
+- Missing fields: name, problem, goal, budget, email, phone

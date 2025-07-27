@@ -1,0 +1,481 @@
+{
+  "traceId": "b93aef7a-7245-4639-9a04-93314fc519df",
+  "traceName": "LangGraph",
+  "status": "success",
+  "startTime": "2025-07-27T16:04:52.641001",
+  "endTime": "2025-07-27T16:04:59.060000",
+  "duration": 6.419,
+  "error": null,
+  "inputs": {
+    "messages": [
+      {
+        "lc": 1,
+        "type": "constructor",
+        "id": [
+          "langchain_core",
+          "messages",
+          "HumanMessage"
+        ],
+        "kwargs": {
+          "content": "{\"phone\":\"+1234567890\",\"message\":\"Mi nombre es Ana\",\"contactId\":\"test-contact-1753632286121\",\"conversationId\":\"test-conv-1753632286121\",\"type\":\"WhatsApp\",\"timestamp\":\"2025-07-27T16:04:52.640Z\"}",
+          "additional_kwargs": {},
+          "response_metadata": {},
+          "id": "a36f0cb9-3180-4b97-b3fa-e0c1c473a8e4"
+        }
+      }
+    ],
+    "contactId": "test-contact-1753632286121",
+    "phone": "+1234567890"
+  },
+  "outputs": {
+    "messages": [
+      {
+        "lc": 1,
+        "type": "constructor",
+        "id": [
+          "langchain_core",
+          "messages",
+          "HumanMessage"
+        ],
+        "kwargs": {
+          "content": "{\"phone\":\"+1234567890\",\"message\":\"Mi nombre es Ana\",\"contactId\":\"test-contact-1753632286121\",\"conversationId\":\"test-conv-1753632286121\",\"type\":\"WhatsApp\",\"timestamp\":\"2025-07-27T16:04:52.640Z\"}",
+          "additional_kwargs": {},
+          "response_metadata": {},
+          "id": "a36f0cb9-3180-4b97-b3fa-e0c1c473a8e4"
+        }
+      },
+      {
+        "lc": 1,
+        "type": "constructor",
+        "id": [
+          "langchain_core",
+          "messages",
+          "HumanMessage"
+        ],
+        "kwargs": {
+          "content": "Hola",
+          "additional_kwargs": {},
+          "response_metadata": {},
+          "id": "1a4e5c2c-1a75-49a1-bae7-f17da0d08afd"
+        }
+      },
+      {
+        "lc": 1,
+        "type": "constructor",
+        "id": [
+          "langchain_core",
+          "messages",
+          "AIMessage"
+        ],
+        "kwargs": {
+          "content": "",
+          "additional_kwargs": {
+            "tool_calls": [
+              {
+                "id": "call_cSp7JbIaZ0F7mBjiO33yJ5R2",
+                "type": "function",
+                "function": {
+                  "name": "extract_lead_info",
+                  "arguments": "{\n  \"message\": \"Hola\"\n}"
+                }
+              }
+            ]
+          },
+          "response_metadata": {
+            "tokenUsage": {
+              "promptTokens": 716,
+              "completionTokens": 16,
+              "totalTokens": 732
+            },
+            "finish_reason": "tool_calls",
+            "model_name": "gpt-4-0613"
+          },
+          "id": "chatcmpl-Bxy9eMFZXg7CW3yZLwhtRhimR3h4j",
+          "tool_calls": [
+            {
+              "name": "extract_lead_info",
+              "args": {
+                "message": "Hola"
+              },
+              "type": "tool_call",
+              "id": "call_cSp7JbIaZ0F7mBjiO33yJ5R2"
+            }
+          ],
+          "invalid_tool_calls": [],
+          "usage_metadata": {
+            "output_tokens": 16,
+            "input_tokens": 716,
+            "total_tokens": 732,
+            "input_token_details": {
+              "audio": 0,
+              "cache_read": 0
+            },
+            "output_token_details": {
+              "audio": 0,
+              "reasoning": 0
+            }
+          }
+        }
+      },
+      {
+        "lc": 1,
+        "type": "constructor",
+        "id": [
+          "langchain_core",
+          "messages",
+          "ToolMessage"
+        ],
+        "kwargs": {
+          "content": "No new information extracted from message",
+          "tool_call_id": "call_cSp7JbIaZ0F7mBjiO33yJ5R2",
+          "additional_kwargs": {},
+          "response_metadata": {},
+          "id": "b1ab8090-7fe7-4499-8d15-0bcedf68caa7"
+        }
+      },
+      {
+        "lc": 1,
+        "type": "constructor",
+        "id": [
+          "langchain_core",
+          "messages",
+          "AIMessage"
+        ],
+        "kwargs": {
+          "content": "",
+          "additional_kwargs": {
+            "tool_calls": [
+              {
+                "id": "call_3CgXID4te2zWyeWDhdze1Wx1",
+                "type": "function",
+                "function": {
+                  "name": "send_ghl_message",
+                  "arguments": "{\n  \"message\": \"¡Hola! Soy María, tu asistente de inteligencia artificial de Outlet Media. ¿Cómo puedo ayudarte hoy? 🚀\"\n}"
+                }
+              }
+            ]
+          },
+          "response_metadata": {
+            "tokenUsage": {
+              "promptTokens": 743,
+              "completionTokens": 45,
+              "totalTokens": 788
+            },
+            "finish_reason": "tool_calls",
+            "model_name": "gpt-4-0613"
+          },
+          "id": "chatcmpl-Bxy9gU5UFY8rbogow8X3ZPX5Vjplr",
+          "tool_calls": [
+            {
+              "name": "send_ghl_message",
+              "args": {
+                "message": "¡Hola! Soy María, tu asistente de inteligencia artificial de Outlet Media. ¿Cómo puedo ayudarte hoy? 🚀"
+              },
+              "type": "tool_call",
+              "id": "call_3CgXID4te2zWyeWDhdze1Wx1"
+            }
+          ],
+          "invalid_tool_calls": [],
+          "usage_metadata": {
+            "output_tokens": 45,
+            "input_tokens": 743,
+            "total_tokens": 788,
+            "input_token_details": {
+              "audio": 0,
+              "cache_read": 0
+            },
+            "output_token_details": {
+              "audio": 0,
+              "reasoning": 0
+            }
+          }
+        }
+      },
+      {
+        "lc": 1,
+        "type": "constructor",
+        "id": [
+          "langchain_core",
+          "messages",
+          "ToolMessage"
+        ],
+        "kwargs": {
+          "content": "Message sent successfully: \"¡Hola! Soy María, tu asistente de inteligencia art...\"",
+          "tool_call_id": "call_3CgXID4te2zWyeWDhdze1Wx1",
+          "additional_kwargs": {},
+          "response_metadata": {},
+          "id": "9785d12d-1261-4ac2-8189-fde8afb284d3"
+        }
+      },
+      {
+        "lc": 1,
+        "type": "constructor",
+        "id": [
+          "langchain_core",
+          "messages",
+          "AIMessage"
+        ],
+        "kwargs": {
+          "content": "",
+          "additional_kwargs": {},
+          "response_metadata": {
+            "tokenUsage": {
+              "promptTokens": 815,
+              "completionTokens": 1,
+              "totalTokens": 816
+            },
+            "finish_reason": "stop",
+            "model_name": "gpt-4-0613"
+          },
+          "id": "chatcmpl-Bxy9iBPGzZ5aMxnZKrm5WsvAPGnLm",
+          "tool_calls": [],
+          "invalid_tool_calls": [],
+          "usage_metadata": {
+            "output_tokens": 1,
+            "input_tokens": 815,
+            "total_tokens": 816,
+            "input_token_details": {
+              "audio": 0,
+              "cache_read": 0
+            },
+            "output_token_details": {
+              "audio": 0,
+              "reasoning": 0
+            }
+          }
+        }
+      },
+      {
+        "lc": 1,
+        "type": "constructor",
+        "id": [
+          "langchain_core",
+          "messages",
+          "HumanMessage"
+        ],
+        "kwargs": {
+          "content": "Mi nombre es Ana",
+          "additional_kwargs": {},
+          "response_metadata": {},
+          "id": "44081619-9f40-495d-ad43-42a3c3dfdc90"
+        }
+      },
+      {
+        "lc": 1,
+        "type": "constructor",
+        "id": [
+          "langchain_core",
+          "messages",
+          "AIMessage"
+        ],
+        "kwargs": {
+          "content": "",
+          "additional_kwargs": {
+            "tool_calls": [
+              {
+                "id": "call_81auotcI2YdQmQtMsEJCdgpP",
+                "type": "function",
+                "function": {
+                  "name": "extract_lead_info",
+                  "arguments": "{\"message\":\"Mi nombre es Ana\"}"
+                }
+              }
+            ]
+          },
+          "response_metadata": {
+            "tokenUsage": {
+              "promptTokens": 827,
+              "completionTokens": 15,
+              "totalTokens": 842
+            },
+            "finish_reason": "tool_calls",
+            "model_name": "gpt-4-0613"
+          },
+          "id": "chatcmpl-Bxy9kwIqPMKTUhGLDaplttem47TR5",
+          "tool_calls": [
+            {
+              "name": "extract_lead_info",
+              "args": {
+                "message": "Mi nombre es Ana"
+              },
+              "type": "tool_call",
+              "id": "call_81auotcI2YdQmQtMsEJCdgpP"
+            }
+          ],
+          "invalid_tool_calls": [],
+          "usage_metadata": {
+            "output_tokens": 15,
+            "input_tokens": 827,
+            "total_tokens": 842,
+            "input_token_details": {
+              "audio": 0,
+              "cache_read": 0
+            },
+            "output_token_details": {
+              "audio": 0,
+              "reasoning": 0
+            }
+          }
+        }
+      },
+      {
+        "lc": 1,
+        "type": "constructor",
+        "id": [
+          "langchain_core",
+          "messages",
+          "ToolMessage"
+        ],
+        "kwargs": {
+          "content": "Extracted: {\"name\":\"ana\"}",
+          "tool_call_id": "call_81auotcI2YdQmQtMsEJCdgpP",
+          "additional_kwargs": {},
+          "response_metadata": {},
+          "id": "b943dfd7-e581-43f1-9b6a-973893e494d8"
+        }
+      },
+      {
+        "lc": 1,
+        "type": "constructor",
+        "id": [
+          "langchain_core",
+          "messages",
+          "AIMessage"
+        ],
+        "kwargs": {
+          "content": "",
+          "additional_kwargs": {
+            "tool_calls": [
+              {
+                "id": "call_k8tYCpL2atCBpohowPs6NMNI",
+                "type": "function",
+                "function": {
+                  "name": "send_ghl_message",
+                  "arguments": "{\"message\":\"¡Mucho gusto, Ana! ¿Podrías decirme un poco sobre el problema que estás enfrentando con tu negocio?\"}"
+                }
+              }
+            ]
+          },
+          "response_metadata": {
+            "tokenUsage": {
+              "promptTokens": 859,
+              "completionTokens": 40,
+              "totalTokens": 899
+            },
+            "finish_reason": "tool_calls",
+            "model_name": "gpt-4-0613"
+          },
+          "id": "chatcmpl-Bxy9oMMVCALgP9CpIJrrBeMizPYz8",
+          "tool_calls": [
+            {
+              "name": "send_ghl_message",
+              "args": {
+                "message": "¡Mucho gusto, Ana! ¿Podrías decirme un poco sobre el problema que estás enfrentando con tu negocio?"
+              },
+              "type": "tool_call",
+              "id": "call_k8tYCpL2atCBpohowPs6NMNI"
+            }
+          ],
+          "invalid_tool_calls": [],
+          "usage_metadata": {
+            "output_tokens": 40,
+            "input_tokens": 859,
+            "total_tokens": 899,
+            "input_token_details": {
+              "audio": 0,
+              "cache_read": 0
+            },
+            "output_token_details": {
+              "audio": 0,
+              "reasoning": 0
+            }
+          }
+        }
+      },
+      {
+        "lc": 1,
+        "type": "constructor",
+        "id": [
+          "langchain_core",
+          "messages",
+          "ToolMessage"
+        ],
+        "kwargs": {
+          "content": "Message sent successfully: \"¡Mucho gusto, Ana! ¿Podrías decirme un poco sobre ...\"",
+          "tool_call_id": "call_k8tYCpL2atCBpohowPs6NMNI",
+          "additional_kwargs": {},
+          "response_metadata": {},
+          "id": "82818afd-a64a-4130-ba23-878cee15d53d"
+        }
+      },
+      {
+        "lc": 1,
+        "type": "constructor",
+        "id": [
+          "langchain_core",
+          "messages",
+          "AIMessage"
+        ],
+        "kwargs": {
+          "content": "",
+          "additional_kwargs": {},
+          "response_metadata": {
+            "tokenUsage": {
+              "promptTokens": 932,
+              "completionTokens": 1,
+              "totalTokens": 933
+            },
+            "finish_reason": "stop",
+            "model_name": "gpt-4-0613"
+          },
+          "id": "chatcmpl-Bxy9qcRNYyRGLhhTOfKxZNBisk3BT",
+          "tool_calls": [],
+          "invalid_tool_calls": [],
+          "usage_metadata": {
+            "output_tokens": 1,
+            "input_tokens": 932,
+            "total_tokens": 933,
+            "input_token_details": {
+              "audio": 0,
+              "cache_read": 0
+            },
+            "output_token_details": {
+              "audio": 0,
+              "reasoning": 0
+            }
+          }
+        }
+      }
+    ],
+    "contactId": "test-contact-1753632286121",
+    "phone": "+1234567890",
+    "leadInfo": {
+      "name": "ana",
+      "problem": "",
+      "goal": "",
+      "budget": 0,
+      "email": "",
+      "phone": "+11234567890",
+      "businessType": "",
+      "businessDetails": ""
+    }
+  },
+  "metadata": {
+    "LANGSMITH_TRACING": "true",
+    "LANGCHAIN_VERBOSE": "false",
+    "test_scenario": "from_zero",
+    "message_content": "Mi nombre es Ana",
+    "simulation_time": "2025-07-27T16:04:52.640Z",
+    "thread_id": "test-conv-1753632286121",
+    "checkpoint_ns": "test-from-zero",
+    "ls_run_depth": 0
+  },
+  "toolCalls": [],
+  "extractedFields": {},
+  "messages": [
+    {
+      "type": "constructor",
+      "role": "ai"
+    }
+  ]
+}

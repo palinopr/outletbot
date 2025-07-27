@@ -1,0 +1,107 @@
+{
+  "traceId": "1f06a7ac-ce88-6245-9ec9-821839cc6091",
+  "traceName": "LangGraph",
+  "status": "success",
+  "startTime": "2025-07-26T23:46:50.507001",
+  "endTime": "2025-07-26T23:46:58.312000",
+  "duration": 7.805,
+  "error": null,
+  "inputs": {
+    "messages": [
+      {
+        "role": "human",
+        "content": "{\"phone\": \"(305) 487-0475\", \"message\": \"Q horas tienes?\",   \"contactId\": \"VY6fEcgnrRaFzVY7PNQz\"}"
+      }
+    ]
+  },
+  "outputs": {
+    "messages": [
+      {
+        "lc": 1,
+        "type": "constructor",
+        "id": [
+          "langchain_core",
+          "messages",
+          "HumanMessage"
+        ],
+        "kwargs": {
+          "content": "{\"phone\": \"(305) 487-0475\", \"message\": \"Q horas tienes?\",   \"contactId\": \"VY6fEcgnrRaFzVY7PNQz\"}",
+          "additional_kwargs": {},
+          "response_metadata": {},
+          "id": "3b01cde9-1f33-444a-8435-eff5fa06d5fc"
+        }
+      },
+      {
+        "lc": 1,
+        "type": "constructor",
+        "id": [
+          "langchain_core",
+          "messages",
+          "AIMessage"
+        ],
+        "kwargs": {
+          "content": "Lo siento, hubo un error procesando tu mensaje. Por favor intenta de nuevo.",
+          "name": "María",
+          "tool_calls": [],
+          "invalid_tool_calls": [],
+          "additional_kwargs": {},
+          "response_metadata": {},
+          "id": "6dc609df-b473-4a9c-a03d-7805dfd08f1a"
+        }
+      }
+    ],
+    "leadInfo": {}
+  },
+  "metadata": {
+    "LANGCHAIN_CALLBACKS_BACKGROUND": "true",
+    "LANGSMITH_LANGGRAPH_API_REVISION": "633a4d5",
+    "LANGSMITH_LANGGRAPH_API_VARIANT": "cloud",
+    "LANGSMITH_HOST_PROJECT_ID": "527bf05d-3ded-43fe-a588-f2557c1c0e43",
+    "LANGSMITH_HOST_REVISION_ID": "2620d5c9-e97a-43b8-ba52-4d3260e0d2ba",
+    "LANGSMITH_LANGGRAPH_GIT_REF_SHA": "d47dd93d37d431ff849a1bf5df023b1bf2622db9",
+    "LANGSMITH_TRACING": "true",
+    "LANGSMITH_LANGGRAPH_GIT_REF": "main",
+    "LANGSMITH_TENANT_ID": "d46348af-8871-4fc1-bb27-5d17f0589bd5",
+    "LANGSMITH_HOST_PROJECT_NAME": "outletbot",
+    "LANGSMITH_AUTH_VERIFY_TENANT_ID": "False",
+    "LANGSMITH_AUTH_ENDPOINT": "https://api.smith.langchain.com",
+    "LANGSMITH_LANGGRAPH_GIT_REPO": "https://github.com/palinopr/outletbot",
+    "revision_id": "d47dd93d37d431ff849a1bf5df023b1bf2622db9",
+    "graph_id": "webhook_handler",
+    "created_by": "system",
+    "assistant_id": "82913ff4-2be9-5518-8332-8af7f6f210be",
+    "run_attempt": 1,
+    "langgraph_version": "0.3.11",
+    "langgraph_api_version": "0.2.104",
+    "langgraph_plan": "enterprise",
+    "langgraph_host": "saas",
+    "langgraph_api_url": null,
+    "phone": "(305) 487-0475",
+    "run_id": "1f06a7ac-ce88-6245-9ec9-821839cc6091",
+    "user_id": "166053ac-d03e-4638-b8f6-d1cf0c2c3d73",
+    "x-scheme": "https",
+    "contactId": "VY6fEcgnrRaFzVY7PNQz",
+    "thread_id": "8f77ef98-27c3-4ced-8f0a-7953560570ba",
+    "x-real-ip": "10.0.0.50",
+    "user-agent": "axios/0.21.4",
+    "x-request-id": "2b8c795ba1afb17c2d68d9d6b426da72",
+    "x-forwarded-for": "10.0.0.50",
+    "x-forwarded-host": "outletbot-a6387ef666a552b8ada595998ba395ea.us.langgraph.app",
+    "x-forwarded-port": "443",
+    "__after_seconds__": 0,
+    "x-forwarded-proto": "https",
+    "x-forwarded-scheme": "https",
+    "langgraph_request_id": "2b8c795ba1afb17c2d68d9d6b426da72",
+    "langgraph_auth_user_id": "166053ac-d03e-4638-b8f6-d1cf0c2c3d73",
+    "__request_start_time_ms__": 1753573610426,
+    "ls_run_depth": 0
+  },
+  "toolCalls": [],
+  "extractedFields": {},
+  "messages": [
+    {
+      "content": "{\"phone\": \"(305) 487-0475\", \"message\": \"Q horas tienes?\",   \"contactId\": \"VY6fEcgnrRaFzVY7PNQz\"}",
+      "role": "human"
+    }
+  ]
+}

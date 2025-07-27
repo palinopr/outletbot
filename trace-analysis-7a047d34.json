@@ -1,0 +1,278 @@
+{
+  "traceId": "7a047d34-d752-4f1b-8819-b01d61c47e03",
+  "traceName": "LangGraph",
+  "status": "success",
+  "startTime": "2025-07-27T16:04:46.122001",
+  "endTime": "2025-07-27T16:04:51.637000",
+  "duration": 5.515,
+  "error": null,
+  "inputs": {
+    "messages": [
+      {
+        "lc": 1,
+        "type": "constructor",
+        "id": [
+          "langchain_core",
+          "messages",
+          "HumanMessage"
+        ],
+        "kwargs": {
+          "content": "{\"phone\":\"+1234567890\",\"message\":\"Hola\",\"contactId\":\"test-contact-1753632286121\",\"conversationId\":\"test-conv-1753632286121\",\"type\":\"WhatsApp\",\"timestamp\":\"2025-07-27T16:04:46.121Z\"}",
+          "additional_kwargs": {},
+          "response_metadata": {},
+          "id": "56abb120-3960-49b2-98b6-e1a44d1eae35"
+        }
+      }
+    ],
+    "contactId": "test-contact-1753632286121",
+    "phone": "+1234567890"
+  },
+  "outputs": {
+    "messages": [
+      {
+        "lc": 1,
+        "type": "constructor",
+        "id": [
+          "langchain_core",
+          "messages",
+          "HumanMessage"
+        ],
+        "kwargs": {
+          "content": "{\"phone\":\"+1234567890\",\"message\":\"Hola\",\"contactId\":\"test-contact-1753632286121\",\"conversationId\":\"test-conv-1753632286121\",\"type\":\"WhatsApp\",\"timestamp\":\"2025-07-27T16:04:46.121Z\"}",
+          "additional_kwargs": {},
+          "response_metadata": {},
+          "id": "56abb120-3960-49b2-98b6-e1a44d1eae35"
+        }
+      },
+      {
+        "lc": 1,
+        "type": "constructor",
+        "id": [
+          "langchain_core",
+          "messages",
+          "HumanMessage"
+        ],
+        "kwargs": {
+          "content": "Hola",
+          "additional_kwargs": {},
+          "response_metadata": {},
+          "id": "1a4e5c2c-1a75-49a1-bae7-f17da0d08afd"
+        }
+      },
+      {
+        "lc": 1,
+        "type": "constructor",
+        "id": [
+          "langchain_core",
+          "messages",
+          "AIMessage"
+        ],
+        "kwargs": {
+          "content": "",
+          "additional_kwargs": {
+            "tool_calls": [
+              {
+                "id": "call_cSp7JbIaZ0F7mBjiO33yJ5R2",
+                "type": "function",
+                "function": {
+                  "name": "extract_lead_info",
+                  "arguments": "{\n  \"message\": \"Hola\"\n}"
+                }
+              }
+            ]
+          },
+          "response_metadata": {
+            "tokenUsage": {
+              "promptTokens": 716,
+              "completionTokens": 16,
+              "totalTokens": 732
+            },
+            "finish_reason": "tool_calls",
+            "model_name": "gpt-4-0613"
+          },
+          "id": "chatcmpl-Bxy9eMFZXg7CW3yZLwhtRhimR3h4j",
+          "tool_calls": [
+            {
+              "name": "extract_lead_info",
+              "args": {
+                "message": "Hola"
+              },
+              "type": "tool_call",
+              "id": "call_cSp7JbIaZ0F7mBjiO33yJ5R2"
+            }
+          ],
+          "invalid_tool_calls": [],
+          "usage_metadata": {
+            "output_tokens": 16,
+            "input_tokens": 716,
+            "total_tokens": 732,
+            "input_token_details": {
+              "audio": 0,
+              "cache_read": 0
+            },
+            "output_token_details": {
+              "audio": 0,
+              "reasoning": 0
+            }
+          }
+        }
+      },
+      {
+        "lc": 1,
+        "type": "constructor",
+        "id": [
+          "langchain_core",
+          "messages",
+          "ToolMessage"
+        ],
+        "kwargs": {
+          "content": "No new information extracted from message",
+          "tool_call_id": "call_cSp7JbIaZ0F7mBjiO33yJ5R2",
+          "additional_kwargs": {},
+          "response_metadata": {},
+          "id": "b1ab8090-7fe7-4499-8d15-0bcedf68caa7"
+        }
+      },
+      {
+        "lc": 1,
+        "type": "constructor",
+        "id": [
+          "langchain_core",
+          "messages",
+          "AIMessage"
+        ],
+        "kwargs": {
+          "content": "",
+          "additional_kwargs": {
+            "tool_calls": [
+              {
+                "id": "call_3CgXID4te2zWyeWDhdze1Wx1",
+                "type": "function",
+                "function": {
+                  "name": "send_ghl_message",
+                  "arguments": "{\n  \"message\": \"¡Hola! Soy María, tu asistente de inteligencia artificial de Outlet Media. ¿Cómo puedo ayudarte hoy? 🚀\"\n}"
+                }
+              }
+            ]
+          },
+          "response_metadata": {
+            "tokenUsage": {
+              "promptTokens": 743,
+              "completionTokens": 45,
+              "totalTokens": 788
+            },
+            "finish_reason": "tool_calls",
+            "model_name": "gpt-4-0613"
+          },
+          "id": "chatcmpl-Bxy9gU5UFY8rbogow8X3ZPX5Vjplr",
+          "tool_calls": [
+            {
+              "name": "send_ghl_message",
+              "args": {
+                "message": "¡Hola! Soy María, tu asistente de inteligencia artificial de Outlet Media. ¿Cómo puedo ayudarte hoy? 🚀"
+              },
+              "type": "tool_call",
+              "id": "call_3CgXID4te2zWyeWDhdze1Wx1"
+            }
+          ],
+          "invalid_tool_calls": [],
+          "usage_metadata": {
+            "output_tokens": 45,
+            "input_tokens": 743,
+            "total_tokens": 788,
+            "input_token_details": {
+              "audio": 0,
+              "cache_read": 0
+            },
+            "output_token_details": {
+              "audio": 0,
+              "reasoning": 0
+            }
+          }
+        }
+      },
+      {
+        "lc": 1,
+        "type": "constructor",
+        "id": [
+          "langchain_core",
+          "messages",
+          "ToolMessage"
+        ],
+        "kwargs": {
+          "content": "Message sent successfully: \"¡Hola! Soy María, tu asistente de inteligencia art...\"",
+          "tool_call_id": "call_3CgXID4te2zWyeWDhdze1Wx1",
+          "additional_kwargs": {},
+          "response_metadata": {},
+          "id": "9785d12d-1261-4ac2-8189-fde8afb284d3"
+        }
+      },
+      {
+        "lc": 1,
+        "type": "constructor",
+        "id": [
+          "langchain_core",
+          "messages",
+          "AIMessage"
+        ],
+        "kwargs": {
+          "content": "",
+          "additional_kwargs": {},
+          "response_metadata": {
+            "tokenUsage": {
+              "promptTokens": 815,
+              "completionTokens": 1,
+              "totalTokens": 816
+            },
+            "finish_reason": "stop",
+            "model_name": "gpt-4-0613"
+          },
+          "id": "chatcmpl-Bxy9iBPGzZ5aMxnZKrm5WsvAPGnLm",
+          "tool_calls": [],
+          "invalid_tool_calls": [],
+          "usage_metadata": {
+            "output_tokens": 1,
+            "input_tokens": 815,
+            "total_tokens": 816,
+            "input_token_details": {
+              "audio": 0,
+              "cache_read": 0
+            },
+            "output_token_details": {
+              "audio": 0,
+              "reasoning": 0
+            }
+          }
+        }
+      }
+    ],
+    "contactId": "test-contact-1753632286121",
+    "phone": "+1234567890",
+    "leadInfo": {
+      "name": null,
+      "problem": null,
+      "goal": null,
+      "budget": null,
+      "email": null,
+      "phone": "+11234567890"
+    }
+  },
+  "metadata": {
+    "LANGSMITH_TRACING": "true",
+    "LANGCHAIN_VERBOSE": "false",
+    "test_scenario": "from_zero",
+    "message_content": "Hola",
+    "simulation_time": "2025-07-27T16:04:46.121Z",
+    "thread_id": "test-conv-1753632286121",
+    "checkpoint_ns": "test-from-zero",
+    "ls_run_depth": 0
+  },
+  "toolCalls": [],
+  "extractedFields": {},
+  "messages": [
+    {
+      "type": "constructor",
+      "role": "ai"
+    }
+  ]
+}

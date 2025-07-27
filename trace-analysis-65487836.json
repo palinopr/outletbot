@@ -1,0 +1,1578 @@
+{
+  "traceId": "65487836-7f37-47c6-afbd-3801493c8023",
+  "traceName": "LangGraph",
+  "status": "success",
+  "startTime": "2025-07-27T15:58:25.492001",
+  "endTime": "2025-07-27T15:58:39.372000",
+  "duration": 13.88,
+  "error": null,
+  "inputs": {
+    "messages": [
+      {
+        "lc": 1,
+        "type": "constructor",
+        "id": [
+          "langchain_core",
+          "messages",
+          "HumanMessage"
+        ],
+        "kwargs": {
+          "content": "{\"phone\":\"+1234567890\",\"message\":\"Mi email es carlos@example.com\",\"contactId\":\"test-contact-1753631862640\",\"conversationId\":\"test-conv-1753631862640\",\"type\":\"WhatsApp\",\"timestamp\":\"2025-07-27T15:58:25.491Z\"}",
+          "additional_kwargs": {},
+          "response_metadata": {},
+          "id": "12f81e0d-9efc-4559-8974-9a5529fe4e2b"
+        }
+      }
+    ],
+    "contactId": "test-contact-1753631862640",
+    "phone": "+1234567890"
+  },
+  "outputs": {
+    "messages": [
+      {
+        "lc": 1,
+        "type": "constructor",
+        "id": [
+          "langchain_core",
+          "messages",
+          "HumanMessage"
+        ],
+        "kwargs": {
+          "content": "{\"phone\":\"+1234567890\",\"message\":\"Mi email es carlos@example.com\",\"contactId\":\"test-contact-1753631862640\",\"conversationId\":\"test-conv-1753631862640\",\"type\":\"WhatsApp\",\"timestamp\":\"2025-07-27T15:58:25.491Z\"}",
+          "additional_kwargs": {},
+          "response_metadata": {},
+          "id": "12f81e0d-9efc-4559-8974-9a5529fe4e2b"
+        }
+      },
+      {
+        "lc": 1,
+        "type": "constructor",
+        "id": [
+          "langchain_core",
+          "messages",
+          "HumanMessage"
+        ],
+        "kwargs": {
+          "content": "Hola",
+          "additional_kwargs": {},
+          "response_metadata": {},
+          "id": "536076b2-6c9b-4a2d-82c4-2791472137cf"
+        }
+      },
+      {
+        "lc": 1,
+        "type": "constructor",
+        "id": [
+          "langchain_core",
+          "messages",
+          "AIMessage"
+        ],
+        "kwargs": {
+          "content": "",
+          "additional_kwargs": {
+            "tool_calls": [
+              {
+                "id": "call_cAfLeSwtdCEWIstnoKrVPxVE",
+                "type": "function",
+                "function": {
+                  "name": "extract_lead_info",
+                  "arguments": "{\n  \"message\": \"Hola\"\n}"
+                }
+              }
+            ]
+          },
+          "response_metadata": {
+            "tokenUsage": {
+              "promptTokens": 716,
+              "completionTokens": 16,
+              "totalTokens": 732
+            },
+            "finish_reason": "tool_calls",
+            "model_name": "gpt-4-0613"
+          },
+          "id": "chatcmpl-Bxy2pKk2VQHe4I7Ru1sYjQ1xeseLO",
+          "tool_calls": [
+            {
+              "name": "extract_lead_info",
+              "args": {
+                "message": "Hola"
+              },
+              "type": "tool_call",
+              "id": "call_cAfLeSwtdCEWIstnoKrVPxVE"
+            }
+          ],
+          "invalid_tool_calls": [],
+          "usage_metadata": {
+            "output_tokens": 16,
+            "input_tokens": 716,
+            "total_tokens": 732,
+            "input_token_details": {
+              "audio": 0,
+              "cache_read": 0
+            },
+            "output_token_details": {
+              "audio": 0,
+              "reasoning": 0
+            }
+          }
+        }
+      },
+      {
+        "lc": 1,
+        "type": "constructor",
+        "id": [
+          "langchain_core",
+          "messages",
+          "ToolMessage"
+        ],
+        "kwargs": {
+          "content": "No new information extracted from message",
+          "tool_call_id": "call_cAfLeSwtdCEWIstnoKrVPxVE",
+          "additional_kwargs": {},
+          "response_metadata": {},
+          "id": "e6521752-3e4a-4cd3-b387-57ca64d3a350"
+        }
+      },
+      {
+        "lc": 1,
+        "type": "constructor",
+        "id": [
+          "langchain_core",
+          "messages",
+          "AIMessage"
+        ],
+        "kwargs": {
+          "content": "",
+          "additional_kwargs": {
+            "tool_calls": [
+              {
+                "id": "call_Of9fPzRLtDFqcKsgHolgEjR0",
+                "type": "function",
+                "function": {
+                  "name": "send_ghl_message",
+                  "arguments": "{\"message\": \"¡Hola! Soy María, tu asistente de inteligencia artificial de Outlet Media. ¿Cómo puedo ayudarte hoy?\"}"
+                }
+              }
+            ]
+          },
+          "response_metadata": {
+            "tokenUsage": {
+              "promptTokens": 743,
+              "completionTokens": 39,
+              "totalTokens": 782
+            },
+            "finish_reason": "tool_calls",
+            "model_name": "gpt-4-0613"
+          },
+          "id": "chatcmpl-Bxy2rdgWjxSjvLYKG5ZKp5oRwOS6t",
+          "tool_calls": [
+            {
+              "name": "send_ghl_message",
+              "args": {
+                "message": "¡Hola! Soy María, tu asistente de inteligencia artificial de Outlet Media. ¿Cómo puedo ayudarte hoy?"
+              },
+              "type": "tool_call",
+              "id": "call_Of9fPzRLtDFqcKsgHolgEjR0"
+            }
+          ],
+          "invalid_tool_calls": [],
+          "usage_metadata": {
+            "output_tokens": 39,
+            "input_tokens": 743,
+            "total_tokens": 782,
+            "input_token_details": {
+              "audio": 0,
+              "cache_read": 0
+            },
+            "output_token_details": {
+              "audio": 0,
+              "reasoning": 0
+            }
+          }
+        }
+      },
+      {
+        "lc": 1,
+        "type": "constructor",
+        "id": [
+          "langchain_core",
+          "messages",
+          "ToolMessage"
+        ],
+        "kwargs": {
+          "content": "Message sent successfully: \"¡Hola! Soy María, tu asistente de inteligencia art...\"",
+          "tool_call_id": "call_Of9fPzRLtDFqcKsgHolgEjR0",
+          "additional_kwargs": {},
+          "response_metadata": {},
+          "id": "93c821eb-1d06-4960-b08b-240a3e54a828"
+        }
+      },
+      {
+        "lc": 1,
+        "type": "constructor",
+        "id": [
+          "langchain_core",
+          "messages",
+          "AIMessage"
+        ],
+        "kwargs": {
+          "content": "",
+          "additional_kwargs": {},
+          "response_metadata": {
+            "tokenUsage": {
+              "promptTokens": 812,
+              "completionTokens": 1,
+              "totalTokens": 813
+            },
+            "finish_reason": "stop",
+            "model_name": "gpt-4-0613"
+          },
+          "id": "chatcmpl-Bxy2tk3XFkZZi4lg603dsEbMnOKC4",
+          "tool_calls": [],
+          "invalid_tool_calls": [],
+          "usage_metadata": {
+            "output_tokens": 1,
+            "input_tokens": 812,
+            "total_tokens": 813,
+            "input_token_details": {
+              "audio": 0,
+              "cache_read": 0
+            },
+            "output_token_details": {
+              "audio": 0,
+              "reasoning": 0
+            }
+          }
+        }
+      },
+      {
+        "lc": 1,
+        "type": "constructor",
+        "id": [
+          "langchain_core",
+          "messages",
+          "HumanMessage"
+        ],
+        "kwargs": {
+          "content": "Mi nombre es Carlos Mendoza",
+          "additional_kwargs": {},
+          "response_metadata": {},
+          "id": "4fe6fe67-1813-41df-b86d-4d552cd2c01d"
+        }
+      },
+      {
+        "lc": 1,
+        "type": "constructor",
+        "id": [
+          "langchain_core",
+          "messages",
+          "AIMessage"
+        ],
+        "kwargs": {
+          "content": "",
+          "additional_kwargs": {
+            "tool_calls": [
+              {
+                "id": "call_ZAC2UdrzxwGnOKJvxWGxUwI5",
+                "type": "function",
+                "function": {
+                  "name": "extract_lead_info",
+                  "arguments": "{\"message\": \"Mi nombre es Carlos Mendoza\"}"
+                }
+              }
+            ]
+          },
+          "response_metadata": {
+            "tokenUsage": {
+              "promptTokens": 826,
+              "completionTokens": 18,
+              "totalTokens": 844
+            },
+            "finish_reason": "tool_calls",
+            "model_name": "gpt-4-0613"
+          },
+          "id": "chatcmpl-Bxy2wUOBEJrdWNvE6yGnpLEbJbNog",
+          "tool_calls": [
+            {
+              "name": "extract_lead_info",
+              "args": {
+                "message": "Mi nombre es Carlos Mendoza"
+              },
+              "type": "tool_call",
+              "id": "call_ZAC2UdrzxwGnOKJvxWGxUwI5"
+            }
+          ],
+          "invalid_tool_calls": [],
+          "usage_metadata": {
+            "output_tokens": 18,
+            "input_tokens": 826,
+            "total_tokens": 844,
+            "input_token_details": {
+              "audio": 0,
+              "cache_read": 0
+            },
+            "output_token_details": {
+              "audio": 0,
+              "reasoning": 0
+            }
+          }
+        }
+      },
+      {
+        "lc": 1,
+        "type": "constructor",
+        "id": [
+          "langchain_core",
+          "messages",
+          "ToolMessage"
+        ],
+        "kwargs": {
+          "content": "Extracted: {\"name\":\"carlos mendoza\"}",
+          "tool_call_id": "call_ZAC2UdrzxwGnOKJvxWGxUwI5",
+          "additional_kwargs": {},
+          "response_metadata": {},
+          "id": "e5dddaa6-0cba-49bd-b091-8adf5da9738b"
+        }
+      },
+      {
+        "lc": 1,
+        "type": "constructor",
+        "id": [
+          "langchain_core",
+          "messages",
+          "AIMessage"
+        ],
+        "kwargs": {
+          "content": "",
+          "additional_kwargs": {
+            "tool_calls": [
+              {
+                "id": "call_4HghxwwIrA7jERVfyNgSW4NE",
+                "type": "function",
+                "function": {
+                  "name": "send_ghl_message",
+                  "arguments": "{\"message\":\"¡Mucho gusto, Carlos Mendoza! ¿Podrías contarme un poco sobre el problema que estás experimentando en tu negocio?\"}"
+                }
+              }
+            ]
+          },
+          "response_metadata": {
+            "tokenUsage": {
+              "promptTokens": 863,
+              "completionTokens": 42,
+              "totalTokens": 905
+            },
+            "finish_reason": "tool_calls",
+            "model_name": "gpt-4-0613"
+          },
+          "id": "chatcmpl-Bxy2yuBRSoJjZbqkSXAgvpZizsGII",
+          "tool_calls": [
+            {
+              "name": "send_ghl_message",
+              "args": {
+                "message": "¡Mucho gusto, Carlos Mendoza! ¿Podrías contarme un poco sobre el problema que estás experimentando en tu negocio?"
+              },
+              "type": "tool_call",
+              "id": "call_4HghxwwIrA7jERVfyNgSW4NE"
+            }
+          ],
+          "invalid_tool_calls": [],
+          "usage_metadata": {
+            "output_tokens": 42,
+            "input_tokens": 863,
+            "total_tokens": 905,
+            "input_token_details": {
+              "audio": 0,
+              "cache_read": 0
+            },
+            "output_token_details": {
+              "audio": 0,
+              "reasoning": 0
+            }
+          }
+        }
+      },
+      {
+        "lc": 1,
+        "type": "constructor",
+        "id": [
+          "langchain_core",
+          "messages",
+          "ToolMessage"
+        ],
+        "kwargs": {
+          "content": "Message sent successfully: \"¡Mucho gusto, Carlos Mendoza! ¿Podrías contarme un...\"",
+          "tool_call_id": "call_4HghxwwIrA7jERVfyNgSW4NE",
+          "additional_kwargs": {},
+          "response_metadata": {},
+          "id": "2dd3cf8c-cf52-4a63-a6f6-fe181adc8529"
+        }
+      },
+      {
+        "lc": 1,
+        "type": "constructor",
+        "id": [
+          "langchain_core",
+          "messages",
+          "AIMessage"
+        ],
+        "kwargs": {
+          "content": "",
+          "additional_kwargs": {},
+          "response_metadata": {
+            "tokenUsage": {
+              "promptTokens": 938,
+              "completionTokens": 1,
+              "totalTokens": 939
+            },
+            "finish_reason": "stop",
+            "model_name": "gpt-4-0613"
+          },
+          "id": "chatcmpl-Bxy30kRw2cASfEYMnWBPsICP2WSD0",
+          "tool_calls": [],
+          "invalid_tool_calls": [],
+          "usage_metadata": {
+            "output_tokens": 1,
+            "input_tokens": 938,
+            "total_tokens": 939,
+            "input_token_details": {
+              "audio": 0,
+              "cache_read": 0
+            },
+            "output_token_details": {
+              "audio": 0,
+              "reasoning": 0
+            }
+          }
+        }
+      },
+      {
+        "lc": 1,
+        "type": "constructor",
+        "id": [
+          "langchain_core",
+          "messages",
+          "HumanMessage"
+        ],
+        "kwargs": {
+          "content": "Tengo un problema con mi sitio web, no aparece en Google",
+          "additional_kwargs": {},
+          "response_metadata": {},
+          "id": "05ee12d1-a564-475c-b3cd-1d3f93b2d2fe"
+        }
+      },
+      {
+        "lc": 1,
+        "type": "constructor",
+        "id": [
+          "langchain_core",
+          "messages",
+          "AIMessage"
+        ],
+        "kwargs": {
+          "content": "",
+          "additional_kwargs": {
+            "tool_calls": [
+              {
+                "id": "call_zd2IsWdOx6RxGtdQaYBfqpi8",
+                "type": "function",
+                "function": {
+                  "name": "extract_lead_info",
+                  "arguments": "{\"message\":\"Tengo un problema con mi sitio web, no aparece en Google\"}"
+                }
+              }
+            ]
+          },
+          "response_metadata": {
+            "tokenUsage": {
+              "promptTokens": 960,
+              "completionTokens": 25,
+              "totalTokens": 985
+            },
+            "finish_reason": "tool_calls",
+            "model_name": "gpt-4-0613"
+          },
+          "id": "chatcmpl-Bxy35MkbIynfEYqDR95SQwyIeOHOg",
+          "tool_calls": [
+            {
+              "name": "extract_lead_info",
+              "args": {
+                "message": "Tengo un problema con mi sitio web, no aparece en Google"
+              },
+              "type": "tool_call",
+              "id": "call_zd2IsWdOx6RxGtdQaYBfqpi8"
+            }
+          ],
+          "invalid_tool_calls": [],
+          "usage_metadata": {
+            "output_tokens": 25,
+            "input_tokens": 960,
+            "total_tokens": 985,
+            "input_token_details": {
+              "audio": 0,
+              "cache_read": 0
+            },
+            "output_token_details": {
+              "audio": 0,
+              "reasoning": 0
+            }
+          }
+        }
+      },
+      {
+        "lc": 1,
+        "type": "constructor",
+        "id": [
+          "langchain_core",
+          "messages",
+          "ToolMessage"
+        ],
+        "kwargs": {
+          "content": "Extracted: {\"problem\":\"tengo un problema con mi sitio web, no aparece en google\"}",
+          "tool_call_id": "call_zd2IsWdOx6RxGtdQaYBfqpi8",
+          "additional_kwargs": {},
+          "response_metadata": {},
+          "id": "e1895548-a8c9-44b8-ae42-ef668eb84469"
+        }
+      },
+      {
+        "lc": 1,
+        "type": "constructor",
+        "id": [
+          "langchain_core",
+          "messages",
+          "AIMessage"
+        ],
+        "kwargs": {
+          "content": "",
+          "additional_kwargs": {
+            "tool_calls": [
+              {
+                "id": "call_ryZIvRB8tfUe3fcHJPildaAN",
+                "type": "function",
+                "function": {
+                  "name": "send_ghl_message",
+                  "arguments": "{\"message\":\"Entiendo, Carlos. Tener un sitio web que no aparece en las búsquedas de Google puede ser un gran obstáculo para tu negocio. ¿Podrías compartirme cuál sería tu objetivo ideal para solucionar este problema?\"}"
+                }
+              }
+            ]
+          },
+          "response_metadata": {
+            "tokenUsage": {
+              "promptTokens": 1015,
+              "completionTokens": 67,
+              "totalTokens": 1082
+            },
+            "finish_reason": "tool_calls",
+            "model_name": "gpt-4-0613"
+          },
+          "id": "chatcmpl-Bxy381CQK1kA13cI1oGX4syLQFE9J",
+          "tool_calls": [
+            {
+              "name": "send_ghl_message",
+              "args": {
+                "message": "Entiendo, Carlos. Tener un sitio web que no aparece en las búsquedas de Google puede ser un gran obstáculo para tu negocio. ¿Podrías compartirme cuál sería tu objetivo ideal para solucionar este problema?"
+              },
+              "type": "tool_call",
+              "id": "call_ryZIvRB8tfUe3fcHJPildaAN"
+            }
+          ],
+          "invalid_tool_calls": [],
+          "usage_metadata": {
+            "output_tokens": 67,
+            "input_tokens": 1015,
+            "total_tokens": 1082,
+            "input_token_details": {
+              "audio": 0,
+              "cache_read": 0
+            },
+            "output_token_details": {
+              "audio": 0,
+              "reasoning": 0
+            }
+          }
+        }
+      },
+      {
+        "lc": 1,
+        "type": "constructor",
+        "id": [
+          "langchain_core",
+          "messages",
+          "ToolMessage"
+        ],
+        "kwargs": {
+          "content": "Message sent successfully: \"Entiendo, Carlos. Tener un sitio web que no aparec...\"",
+          "tool_call_id": "call_ryZIvRB8tfUe3fcHJPildaAN",
+          "additional_kwargs": {},
+          "response_metadata": {},
+          "id": "9ebd8218-4351-4192-91bc-90dcd8c921c0"
+        }
+      },
+      {
+        "lc": 1,
+        "type": "constructor",
+        "id": [
+          "langchain_core",
+          "messages",
+          "AIMessage"
+        ],
+        "kwargs": {
+          "content": "",
+          "additional_kwargs": {},
+          "response_metadata": {
+            "tokenUsage": {
+              "promptTokens": 1113,
+              "completionTokens": 1,
+              "totalTokens": 1114
+            },
+            "finish_reason": "stop",
+            "model_name": "gpt-4-0613"
+          },
+          "id": "chatcmpl-Bxy3BzyAWuPcOb20Ku9ii7xcC7xxq",
+          "tool_calls": [],
+          "invalid_tool_calls": [],
+          "usage_metadata": {
+            "output_tokens": 1,
+            "input_tokens": 1113,
+            "total_tokens": 1114,
+            "input_token_details": {
+              "audio": 0,
+              "cache_read": 0
+            },
+            "output_token_details": {
+              "audio": 0,
+              "reasoning": 0
+            }
+          }
+        }
+      },
+      {
+        "lc": 1,
+        "type": "constructor",
+        "id": [
+          "langchain_core",
+          "messages",
+          "HumanMessage"
+        ],
+        "kwargs": {
+          "content": "Quiero conseguir más clientes para mi negocio",
+          "additional_kwargs": {},
+          "response_metadata": {},
+          "id": "b5284fe2-8921-402e-8261-235a9fe6fb94"
+        }
+      },
+      {
+        "lc": 1,
+        "type": "constructor",
+        "id": [
+          "langchain_core",
+          "messages",
+          "AIMessage"
+        ],
+        "kwargs": {
+          "content": "",
+          "additional_kwargs": {
+            "tool_calls": [
+              {
+                "id": "call_YYAy06MfLkjsohIIbW1dqTRh",
+                "type": "function",
+                "function": {
+                  "name": "extract_lead_info",
+                  "arguments": "{\"message\":\"Quiero conseguir más clientes para mi negocio\"}"
+                }
+              }
+            ]
+          },
+          "response_metadata": {
+            "tokenUsage": {
+              "promptTokens": 1129,
+              "completionTokens": 19,
+              "totalTokens": 1148
+            },
+            "finish_reason": "tool_calls",
+            "model_name": "gpt-4-0613"
+          },
+          "id": "chatcmpl-Bxy3F4Da9qsda49CviMHJSV5x5Wws",
+          "tool_calls": [
+            {
+              "name": "extract_lead_info",
+              "args": {
+                "message": "Quiero conseguir más clientes para mi negocio"
+              },
+              "type": "tool_call",
+              "id": "call_YYAy06MfLkjsohIIbW1dqTRh"
+            }
+          ],
+          "invalid_tool_calls": [],
+          "usage_metadata": {
+            "output_tokens": 19,
+            "input_tokens": 1129,
+            "total_tokens": 1148,
+            "input_token_details": {
+              "audio": 0,
+              "cache_read": 0
+            },
+            "output_token_details": {
+              "audio": 0,
+              "reasoning": 0
+            }
+          }
+        }
+      },
+      {
+        "lc": 1,
+        "type": "constructor",
+        "id": [
+          "langchain_core",
+          "messages",
+          "ToolMessage"
+        ],
+        "kwargs": {
+          "content": "No new information extracted from message",
+          "tool_call_id": "call_YYAy06MfLkjsohIIbW1dqTRh",
+          "additional_kwargs": {},
+          "response_metadata": {},
+          "id": "c303e0b9-7c67-48ec-9247-8aa50cf6d4ed"
+        }
+      },
+      {
+        "lc": 1,
+        "type": "constructor",
+        "id": [
+          "langchain_core",
+          "messages",
+          "AIMessage"
+        ],
+        "kwargs": {
+          "content": "",
+          "additional_kwargs": {
+            "tool_calls": [
+              {
+                "id": "call_vXifhCh1ky8d2I5D6KiNjGRb",
+                "type": "function",
+                "function": {
+                  "name": "send_ghl_message",
+                  "arguments": "{\"message\":\"Comprendo, Carlos. Mejorar la visibilidad de tu sitio web en Google puede ser una excelente manera de atraer a más clientes. Ahora, para poder ayudarte de la mejor manera, necesitaría conocer tu presupuesto para esta iniciativa. ¿Cuánto estarías dispuesto a invertir?\"}"
+                }
+              }
+            ]
+          },
+          "response_metadata": {
+            "tokenUsage": {
+              "promptTokens": 1163,
+              "completionTokens": 80,
+              "totalTokens": 1243
+            },
+            "finish_reason": "tool_calls",
+            "model_name": "gpt-4-0613"
+          },
+          "id": "chatcmpl-Bxy3GOMJQchfoDVFPblyZD1LvkkDI",
+          "tool_calls": [
+            {
+              "name": "send_ghl_message",
+              "args": {
+                "message": "Comprendo, Carlos. Mejorar la visibilidad de tu sitio web en Google puede ser una excelente manera de atraer a más clientes. Ahora, para poder ayudarte de la mejor manera, necesitaría conocer tu presupuesto para esta iniciativa. ¿Cuánto estarías dispuesto a invertir?"
+              },
+              "type": "tool_call",
+              "id": "call_vXifhCh1ky8d2I5D6KiNjGRb"
+            }
+          ],
+          "invalid_tool_calls": [],
+          "usage_metadata": {
+            "output_tokens": 80,
+            "input_tokens": 1163,
+            "total_tokens": 1243,
+            "input_token_details": {
+              "audio": 0,
+              "cache_read": 0
+            },
+            "output_token_details": {
+              "audio": 0,
+              "reasoning": 0
+            }
+          }
+        }
+      },
+      {
+        "lc": 1,
+        "type": "constructor",
+        "id": [
+          "langchain_core",
+          "messages",
+          "ToolMessage"
+        ],
+        "kwargs": {
+          "content": "Message sent successfully: \"Comprendo, Carlos. Mejorar la visibilidad de tu si...\"",
+          "tool_call_id": "call_vXifhCh1ky8d2I5D6KiNjGRb",
+          "additional_kwargs": {},
+          "response_metadata": {},
+          "id": "12f55285-0040-4b9d-885f-70ef4d89d0ba"
+        }
+      },
+      {
+        "lc": 1,
+        "type": "constructor",
+        "id": [
+          "langchain_core",
+          "messages",
+          "AIMessage"
+        ],
+        "kwargs": {
+          "content": "",
+          "additional_kwargs": {},
+          "response_metadata": {
+            "tokenUsage": {
+              "promptTokens": 1275,
+              "completionTokens": 1,
+              "totalTokens": 1276
+            },
+            "finish_reason": "stop",
+            "model_name": "gpt-4-0613"
+          },
+          "id": "chatcmpl-Bxy3JwHZyrB95EOY7EuMQV7xI4Dk5",
+          "tool_calls": [],
+          "invalid_tool_calls": [],
+          "usage_metadata": {
+            "output_tokens": 1,
+            "input_tokens": 1275,
+            "total_tokens": 1276,
+            "input_token_details": {
+              "audio": 0,
+              "cache_read": 0
+            },
+            "output_token_details": {
+              "audio": 0,
+              "reasoning": 0
+            }
+          }
+        }
+      },
+      {
+        "lc": 1,
+        "type": "constructor",
+        "id": [
+          "langchain_core",
+          "messages",
+          "HumanMessage"
+        ],
+        "kwargs": {
+          "content": "Mi presupuesto es de $400 mensuales",
+          "additional_kwargs": {},
+          "response_metadata": {},
+          "id": "8c194f56-093b-44ed-9039-e8b327d260e6"
+        }
+      },
+      {
+        "lc": 1,
+        "type": "constructor",
+        "id": [
+          "langchain_core",
+          "messages",
+          "AIMessage"
+        ],
+        "kwargs": {
+          "content": "",
+          "additional_kwargs": {
+            "tool_calls": [
+              {
+                "id": "call_XJF6F51Ktq3jJStJoyU8AkQR",
+                "type": "function",
+                "function": {
+                  "name": "extract_lead_info",
+                  "arguments": "{\"message\":\"Mi presupuesto es de $400 mensuales\"}"
+                }
+              }
+            ]
+          },
+          "response_metadata": {
+            "tokenUsage": {
+              "promptTokens": 1292,
+              "completionTokens": 20,
+              "totalTokens": 1312
+            },
+            "finish_reason": "tool_calls",
+            "model_name": "gpt-4-0613"
+          },
+          "id": "chatcmpl-Bxy3M7BhHLcPQRXLXWLOI7AWHfE76",
+          "tool_calls": [
+            {
+              "name": "extract_lead_info",
+              "args": {
+                "message": "Mi presupuesto es de $400 mensuales"
+              },
+              "type": "tool_call",
+              "id": "call_XJF6F51Ktq3jJStJoyU8AkQR"
+            }
+          ],
+          "invalid_tool_calls": [],
+          "usage_metadata": {
+            "output_tokens": 20,
+            "input_tokens": 1292,
+            "total_tokens": 1312,
+            "input_token_details": {
+              "audio": 0,
+              "cache_read": 0
+            },
+            "output_token_details": {
+              "audio": 0,
+              "reasoning": 0
+            }
+          }
+        }
+      },
+      {
+        "lc": 1,
+        "type": "constructor",
+        "id": [
+          "langchain_core",
+          "messages",
+          "ToolMessage"
+        ],
+        "kwargs": {
+          "content": "Extracted: {\"budget\":400}",
+          "tool_call_id": "call_XJF6F51Ktq3jJStJoyU8AkQR",
+          "additional_kwargs": {},
+          "response_metadata": {},
+          "id": "65d57a79-6870-46e6-afed-5ca6a4e6b83e"
+        }
+      },
+      {
+        "lc": 1,
+        "type": "constructor",
+        "id": [
+          "langchain_core",
+          "messages",
+          "AIMessage"
+        ],
+        "kwargs": {
+          "content": "",
+          "additional_kwargs": {
+            "tool_calls": [
+              {
+                "id": "call_iFV8wZ7tDncGvOwyIvOfEEWV",
+                "type": "function",
+                "function": {
+                  "name": "send_ghl_message",
+                  "arguments": "{\"message\":\"Excelente, Carlos. Un presupuesto de $400 mensuales nos permitirá implementar una estrategia efectiva para mejorar la visibilidad de tu sitio web en Google. Por último, ¿podrías proporcionarme tu correo electrónico para que podamos coordinar los próximos pasos?\"}"
+                }
+              }
+            ]
+          },
+          "response_metadata": {
+            "tokenUsage": {
+              "promptTokens": 1343,
+              "completionTokens": 74,
+              "totalTokens": 1417
+            },
+            "finish_reason": "tool_calls",
+            "model_name": "gpt-4-0613"
+          },
+          "id": "chatcmpl-Bxy3OAU8m5tlA7ft9mLMkPOf7ZlTe",
+          "tool_calls": [
+            {
+              "name": "send_ghl_message",
+              "args": {
+                "message": "Excelente, Carlos. Un presupuesto de $400 mensuales nos permitirá implementar una estrategia efectiva para mejorar la visibilidad de tu sitio web en Google. Por último, ¿podrías proporcionarme tu correo electrónico para que podamos coordinar los próximos pasos?"
+              },
+              "type": "tool_call",
+              "id": "call_iFV8wZ7tDncGvOwyIvOfEEWV"
+            }
+          ],
+          "invalid_tool_calls": [],
+          "usage_metadata": {
+            "output_tokens": 74,
+            "input_tokens": 1343,
+            "total_tokens": 1417,
+            "input_token_details": {
+              "audio": 0,
+              "cache_read": 0
+            },
+            "output_token_details": {
+              "audio": 0,
+              "reasoning": 0
+            }
+          }
+        }
+      },
+      {
+        "lc": 1,
+        "type": "constructor",
+        "id": [
+          "langchain_core",
+          "messages",
+          "ToolMessage"
+        ],
+        "kwargs": {
+          "content": "Message sent successfully: \"Excelente, Carlos. Un presupuesto de $400 mensuale...\"",
+          "tool_call_id": "call_iFV8wZ7tDncGvOwyIvOfEEWV",
+          "additional_kwargs": {},
+          "response_metadata": {},
+          "id": "59cae6b3-ccec-4d67-a818-bfb50cf49d1d"
+        }
+      },
+      {
+        "lc": 1,
+        "type": "constructor",
+        "id": [
+          "langchain_core",
+          "messages",
+          "AIMessage"
+        ],
+        "kwargs": {
+          "content": "",
+          "additional_kwargs": {},
+          "response_metadata": {
+            "tokenUsage": {
+              "promptTokens": 1447,
+              "completionTokens": 1,
+              "totalTokens": 1448
+            },
+            "finish_reason": "stop",
+            "model_name": "gpt-4-0613"
+          },
+          "id": "chatcmpl-Bxy3TW0kn8HhmBKcHZgRqwF5tqjMR",
+          "tool_calls": [],
+          "invalid_tool_calls": [],
+          "usage_metadata": {
+            "output_tokens": 1,
+            "input_tokens": 1447,
+            "total_tokens": 1448,
+            "input_token_details": {
+              "audio": 0,
+              "cache_read": 0
+            },
+            "output_token_details": {
+              "audio": 0,
+              "reasoning": 0
+            }
+          }
+        }
+      },
+      {
+        "lc": 1,
+        "type": "constructor",
+        "id": [
+          "langchain_core",
+          "messages",
+          "HumanMessage"
+        ],
+        "kwargs": {
+          "content": "Mi email es carlos@example.com",
+          "additional_kwargs": {},
+          "response_metadata": {},
+          "id": "65f56603-0478-4dc0-8d26-8e36c5169ff9"
+        }
+      },
+      {
+        "lc": 1,
+        "type": "constructor",
+        "id": [
+          "langchain_core",
+          "messages",
+          "AIMessage"
+        ],
+        "kwargs": {
+          "content": "",
+          "additional_kwargs": {
+            "tool_calls": [
+              {
+                "id": "call_MifwoAeBq3hyUydKofILE79t",
+                "type": "function",
+                "function": {
+                  "name": "extract_lead_info",
+                  "arguments": "{\"message\":\"Mi email es carlos@example.com\"}"
+                }
+              }
+            ]
+          },
+          "response_metadata": {
+            "tokenUsage": {
+              "promptTokens": 1448,
+              "completionTokens": 18,
+              "totalTokens": 1466
+            },
+            "finish_reason": "tool_calls",
+            "model_name": "gpt-4-0613"
+          },
+          "id": "chatcmpl-Bxy3V1nSVlrZ7HUTJfRTfPfgc90LX",
+          "tool_calls": [
+            {
+              "name": "extract_lead_info",
+              "args": {
+                "message": "Mi email es carlos@example.com"
+              },
+              "type": "tool_call",
+              "id": "call_MifwoAeBq3hyUydKofILE79t"
+            }
+          ],
+          "invalid_tool_calls": [],
+          "usage_metadata": {
+            "output_tokens": 18,
+            "input_tokens": 1448,
+            "total_tokens": 1466,
+            "input_token_details": {
+              "audio": 0,
+              "cache_read": 0
+            },
+            "output_token_details": {
+              "audio": 0,
+              "reasoning": 0
+            }
+          }
+        }
+      },
+      {
+        "lc": 1,
+        "type": "constructor",
+        "id": [
+          "langchain_core",
+          "messages",
+          "ToolMessage"
+        ],
+        "kwargs": {
+          "content": "Extracted: {\"email\":\"carlos@example.com\"}",
+          "tool_call_id": "call_MifwoAeBq3hyUydKofILE79t",
+          "additional_kwargs": {},
+          "response_metadata": {},
+          "id": "668cd2da-ffd9-4c72-86a9-91e0cc21a7ed"
+        }
+      },
+      {
+        "lc": 1,
+        "type": "constructor",
+        "id": [
+          "langchain_core",
+          "messages",
+          "AIMessage"
+        ],
+        "kwargs": {
+          "content": "",
+          "additional_kwargs": {
+            "tool_calls": [
+              {
+                "id": "call_gFOoRRHAcUs5p83220bEPRW5",
+                "type": "function",
+                "function": {
+                  "name": "get_calendar_slots",
+                  "arguments": "{}"
+                }
+              }
+            ]
+          },
+          "response_metadata": {
+            "tokenUsage": {
+              "promptTokens": 1486,
+              "completionTokens": 8,
+              "totalTokens": 1494
+            },
+            "finish_reason": "tool_calls",
+            "model_name": "gpt-4-0613"
+          },
+          "id": "chatcmpl-Bxy3YnMCNBkEcE0cqedTtnkoWzxjy",
+          "tool_calls": [
+            {
+              "name": "get_calendar_slots",
+              "args": {},
+              "type": "tool_call",
+              "id": "call_gFOoRRHAcUs5p83220bEPRW5"
+            }
+          ],
+          "invalid_tool_calls": [],
+          "usage_metadata": {
+            "output_tokens": 8,
+            "input_tokens": 1486,
+            "total_tokens": 1494,
+            "input_token_details": {
+              "audio": 0,
+              "cache_read": 0
+            },
+            "output_token_details": {
+              "audio": 0,
+              "reasoning": 0
+            }
+          }
+        }
+      },
+      {
+        "lc": 1,
+        "type": "constructor",
+        "id": [
+          "langchain_core",
+          "messages",
+          "ToolMessage"
+        ],
+        "kwargs": {
+          "content": "Missing required information for calendar: name, problem, goal, budget, email",
+          "tool_call_id": "call_gFOoRRHAcUs5p83220bEPRW5",
+          "additional_kwargs": {},
+          "response_metadata": {},
+          "id": "28e91090-c60b-43d8-bb5c-79a47675ca76"
+        }
+      },
+      {
+        "lc": 1,
+        "type": "constructor",
+        "id": [
+          "langchain_core",
+          "messages",
+          "AIMessage"
+        ],
+        "kwargs": {
+          "content": "",
+          "additional_kwargs": {
+            "tool_calls": [
+              {
+                "id": "call_wewwgJPwnyamPOx5uu73QAnc",
+                "type": "function",
+                "function": {
+                  "name": "update_ghl_contact",
+                  "arguments": "{\n  \"tags\": [\"qualified-lead\"],\n  \"notes\": \"Carlos Mendoza tiene un problema con la visibilidad de su sitio web en Google. Su objetivo es atraer más clientes y tiene un presupuesto de $400 mensuales. Su correo electrónico es carlos@example.com.\"\n}"
+                }
+              }
+            ]
+          },
+          "response_metadata": {
+            "tokenUsage": {
+              "promptTokens": 1518,
+              "completionTokens": 70,
+              "totalTokens": 1588
+            },
+            "finish_reason": "tool_calls",
+            "model_name": "gpt-4-0613"
+          },
+          "id": "chatcmpl-Bxy3ZyuqIO7srLmxygpTj7t3jkICs",
+          "tool_calls": [
+            {
+              "name": "update_ghl_contact",
+              "args": {
+                "tags": [
+                  "qualified-lead"
+                ],
+                "notes": "Carlos Mendoza tiene un problema con la visibilidad de su sitio web en Google. Su objetivo es atraer más clientes y tiene un presupuesto de $400 mensuales. Su correo electrónico es carlos@example.com."
+              },
+              "type": "tool_call",
+              "id": "call_wewwgJPwnyamPOx5uu73QAnc"
+            }
+          ],
+          "invalid_tool_calls": [],
+          "usage_metadata": {
+            "output_tokens": 70,
+            "input_tokens": 1518,
+            "total_tokens": 1588,
+            "input_token_details": {
+              "audio": 0,
+              "cache_read": 0
+            },
+            "output_token_details": {
+              "audio": 0,
+              "reasoning": 0
+            }
+          }
+        }
+      },
+      {
+        "lc": 1,
+        "type": "constructor",
+        "id": [
+          "langchain_core",
+          "messages",
+          "ToolMessage"
+        ],
+        "kwargs": {
+          "content": "Contact updated successfully",
+          "tool_call_id": "call_wewwgJPwnyamPOx5uu73QAnc",
+          "additional_kwargs": {},
+          "response_metadata": {},
+          "id": "aab2e609-d85c-4f96-8a2d-6fac896c3428"
+        }
+      },
+      {
+        "lc": 1,
+        "type": "constructor",
+        "id": [
+          "langchain_core",
+          "messages",
+          "AIMessage"
+        ],
+        "kwargs": {
+          "content": "",
+          "additional_kwargs": {
+            "tool_calls": [
+              {
+                "id": "call_pr4plrRGXlhmJoSRxMW4gZn5",
+                "type": "function",
+                "function": {
+                  "name": "get_calendar_slots",
+                  "arguments": "{}"
+                }
+              }
+            ]
+          },
+          "response_metadata": {
+            "tokenUsage": {
+              "promptTokens": 1596,
+              "completionTokens": 8,
+              "totalTokens": 1604
+            },
+            "finish_reason": "tool_calls",
+            "model_name": "gpt-4-0613"
+          },
+          "id": "chatcmpl-Bxy3duTcimxMkCotAkhbW80UtpQrg",
+          "tool_calls": [
+            {
+              "name": "get_calendar_slots",
+              "args": {},
+              "type": "tool_call",
+              "id": "call_pr4plrRGXlhmJoSRxMW4gZn5"
+            }
+          ],
+          "invalid_tool_calls": [],
+          "usage_metadata": {
+            "output_tokens": 8,
+            "input_tokens": 1596,
+            "total_tokens": 1604,
+            "input_token_details": {
+              "audio": 0,
+              "cache_read": 0
+            },
+            "output_token_details": {
+              "audio": 0,
+              "reasoning": 0
+            }
+          }
+        }
+      },
+      {
+        "lc": 1,
+        "type": "constructor",
+        "id": [
+          "langchain_core",
+          "messages",
+          "ToolMessage"
+        ],
+        "kwargs": {
+          "content": "Missing required information for calendar: name, problem, goal, budget, email",
+          "tool_call_id": "call_pr4plrRGXlhmJoSRxMW4gZn5",
+          "additional_kwargs": {},
+          "response_metadata": {},
+          "id": "20cf6f32-8abf-4c11-a95a-327fae3e0a03"
+        }
+      },
+      {
+        "lc": 1,
+        "type": "constructor",
+        "id": [
+          "langchain_core",
+          "messages",
+          "AIMessage"
+        ],
+        "kwargs": {
+          "content": "",
+          "additional_kwargs": {
+            "tool_calls": [
+              {
+                "id": "call_YE6oqcCPc5pPwuaXcDx2OBH8",
+                "type": "function",
+                "function": {
+                  "name": "send_ghl_message",
+                  "arguments": "{\"message\":\"Gracias por proporcionar toda la información necesaria, Carlos. Ahora podemos programar una cita para discutir en detalle cómo podemos ayudarte a mejorar la visibilidad de tu sitio web en Google. Te enviaré algunas opciones de horario en breve.\"}"
+                }
+              }
+            ]
+          },
+          "response_metadata": {
+            "tokenUsage": {
+              "promptTokens": 1628,
+              "completionTokens": 66,
+              "totalTokens": 1694
+            },
+            "finish_reason": "tool_calls",
+            "model_name": "gpt-4-0613"
+          },
+          "id": "chatcmpl-Bxy3etbX3lmzagZ3gchZGA5jdSL92",
+          "tool_calls": [
+            {
+              "name": "send_ghl_message",
+              "args": {
+                "message": "Gracias por proporcionar toda la información necesaria, Carlos. Ahora podemos programar una cita para discutir en detalle cómo podemos ayudarte a mejorar la visibilidad de tu sitio web en Google. Te enviaré algunas opciones de horario en breve."
+              },
+              "type": "tool_call",
+              "id": "call_YE6oqcCPc5pPwuaXcDx2OBH8"
+            }
+          ],
+          "invalid_tool_calls": [],
+          "usage_metadata": {
+            "output_tokens": 66,
+            "input_tokens": 1628,
+            "total_tokens": 1694,
+            "input_token_details": {
+              "audio": 0,
+              "cache_read": 0
+            },
+            "output_token_details": {
+              "audio": 0,
+              "reasoning": 0
+            }
+          }
+        }
+      },
+      {
+        "lc": 1,
+        "type": "constructor",
+        "id": [
+          "langchain_core",
+          "messages",
+          "ToolMessage"
+        ],
+        "kwargs": {
+          "content": "Message sent successfully: \"Gracias por proporcionar toda la información neces...\"",
+          "tool_call_id": "call_YE6oqcCPc5pPwuaXcDx2OBH8",
+          "additional_kwargs": {},
+          "response_metadata": {},
+          "id": "5038aa51-9f79-439f-bdc7-2f71cd342829"
+        }
+      },
+      {
+        "lc": 1,
+        "type": "constructor",
+        "id": [
+          "langchain_core",
+          "messages",
+          "AIMessage"
+        ],
+        "kwargs": {
+          "content": "",
+          "additional_kwargs": {
+            "tool_calls": [
+              {
+                "id": "call_hoBVWuuT7JQUBUYwJ2IVti9G",
+                "type": "function",
+                "function": {
+                  "name": "get_calendar_slots",
+                  "arguments": "{}"
+                }
+              }
+            ]
+          },
+          "response_metadata": {
+            "tokenUsage": {
+              "promptTokens": 1720,
+              "completionTokens": 8,
+              "totalTokens": 1728
+            },
+            "finish_reason": "tool_calls",
+            "model_name": "gpt-4-0613"
+          },
+          "id": "chatcmpl-Bxy3h1bLnYzGXbvX7IvAsu1djqQFg",
+          "tool_calls": [
+            {
+              "name": "get_calendar_slots",
+              "args": {},
+              "type": "tool_call",
+              "id": "call_hoBVWuuT7JQUBUYwJ2IVti9G"
+            }
+          ],
+          "invalid_tool_calls": [],
+          "usage_metadata": {
+            "output_tokens": 8,
+            "input_tokens": 1720,
+            "total_tokens": 1728,
+            "input_token_details": {
+              "audio": 0,
+              "cache_read": 0
+            },
+            "output_token_details": {
+              "audio": 0,
+              "reasoning": 0
+            }
+          }
+        }
+      },
+      {
+        "lc": 1,
+        "type": "constructor",
+        "id": [
+          "langchain_core",
+          "messages",
+          "ToolMessage"
+        ],
+        "kwargs": {
+          "content": "Missing required information for calendar: name, problem, goal, budget, email",
+          "tool_call_id": "call_hoBVWuuT7JQUBUYwJ2IVti9G",
+          "additional_kwargs": {},
+          "response_metadata": {},
+          "id": "c63ed35d-95c2-409d-afbb-e61fe82b1afc"
+        }
+      },
+      {
+        "lc": 1,
+        "type": "constructor",
+        "id": [
+          "langchain_core",
+          "messages",
+          "AIMessage"
+        ],
+        "kwargs": {
+          "content": "",
+          "additional_kwargs": {},
+          "response_metadata": {
+            "tokenUsage": {
+              "promptTokens": 1752,
+              "completionTokens": 1,
+              "totalTokens": 1753
+            },
+            "finish_reason": "stop",
+            "model_name": "gpt-4-0613"
+          },
+          "id": "chatcmpl-Bxy3jKCg9e2pB9Vr7jUorXhAqMtPb",
+          "tool_calls": [],
+          "invalid_tool_calls": [],
+          "usage_metadata": {
+            "output_tokens": 1,
+            "input_tokens": 1752,
+            "total_tokens": 1753,
+            "input_token_details": {
+              "audio": 0,
+              "cache_read": 0
+            },
+            "output_token_details": {
+              "audio": 0,
+              "reasoning": 0
+            }
+          }
+        }
+      }
+    ],
+    "contactId": "test-contact-1753631862640",
+    "phone": "+1234567890",
+    "leadInfo": {
+      "name": "",
+      "problem": "",
+      "goal": "",
+      "budget": 0,
+      "email": "carlos@example.com",
+      "phone": "+11234567890",
+      "businessType": "",
+      "businessDetails": ""
+    }
+  },
+  "metadata": {
+    "LANGSMITH_TRACING": "true",
+    "LANGCHAIN_VERBOSE": "false",
+    "test_scenario": "from_zero",
+    "message_content": "Mi email es carlos@example.com",
+    "simulation_time": "2025-07-27T15:58:25.491Z",
+    "thread_id": "test-conv-1753631862640",
+    "checkpoint_ns": "test-from-zero",
+    "ls_run_depth": 0
+  },
+  "toolCalls": [],
+  "extractedFields": {},
+  "messages": [
+    {
+      "type": "constructor",
+      "role": "ai"
+    }
+  ]
+}

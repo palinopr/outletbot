@@ -95,6 +95,16 @@ const AgentStateAnnotation = Annotation.Root({
     default: () => false
   }),
   
+  // Track if all required fields are collected
+  allFieldsCollected: Annotation({
+    default: () => false
+  }),
+  
+  // Track if calendar has been shown
+  calendarShown: Annotation({
+    default: () => false
+  }),
+  
   // Last update timestamp
   lastUpdate: Annotation({
     default: () => null
@@ -114,14 +124,12 @@ const extractLeadInfo = tool(
     });
     
     try {
-      // Access current state - check multiple sources for state
-      const graphState = config?.getState ? await config.getState() : null;
-      const configState = config?.configurable || {};
-      // Prefer graph state if available, otherwise use config
-      const currentState = graphState || configState;
-      const currentLeadInfo = currentState.leadInfo || {};
-      const extractionCount = currentState.extractionCount || 0;
-      const processedMessages = currentState.processedMessages || [];
+      // Access state from __pregel_scratchpad.currentTaskInput
+      const currentTaskInput = config?.configurable?.__pregel_scratchpad?.currentTaskInput || {};
+      const currentLeadInfo = currentTaskInput.leadInfo || config?.configurable?.leadInfo || {};
+      const extractionCount = currentTaskInput.extractionCount || 0;
+      const processedMessages = currentTaskInput.processedMessages || [];
+      const stateMessages = currentTaskInput.messages || [];
       
       // Check extraction attempt limit
       const MAX_EXTRACTION_ATTEMPTS = 3;
@@ -207,29 +215,141 @@ const extractLeadInfo = tool(
       
       logger.debug('Extract lead info - Current context', { currentInfo });
       
-      const prompt = `Analyze this customer message and extract any information provided:
-      Message: "${message}"
+      // Get conversation context from state messages
+      const recentMessages = stateMessages.slice(-5); // Get last 5 messages for context
       
-      Current info we already have: ${JSON.stringify(currentInfo)}
+      // Build conversation context
+      let conversationContext = "";
+      let lastAssistantQuestion = "";
       
-      Extract any NEW information (if mentioned):
-      - name (person's name)
-      - businessType (restaurant, store, clinic, salon, etc)
-      - problem (their pain point or challenge)
-      - goal (what they want to achieve)
-      - budget (IMPORTANT: Look for numbers with "mes", "mensual", "al mes", "por mes", "$". Examples: "500 al mes" = 500, "$1000 mensual" = 1000)
-      - email (email address)
-      - businessDetails (any specific details about their business)
+      for (let i = 0; i < recentMessages.length; i++) {
+        const msg = recentMessages[i];
+        const role = msg._getType?.() === 'human' ? 'Customer' : 
+                    msg._getType?.() === 'ai' ? 'Assistant' : 
+                    msg.role || 'Unknown';
+        
+        if (role === 'Assistant' && msg.content) {
+          lastAssistantQuestion = msg.content;
+        }
+        
+        if (role === 'Customer' || role === 'Assistant') {
+          conversationContext += `${role}: ${msg.content || ''}\n`;
+        }
+      }
       
-      For budget, if you see a number followed by any monthly indicator, extract just the number.
+      // Special handling for "si" confirmation
+      logger.debug('Checking for si confirmation', { 
+        message, 
+        lastAssistantQuestion,
+        isSi: message.toLowerCase() === 'si' || message.toLowerCase() === 'sí' || message.toLowerCase() === 'yes'
+      });
       
-      Return ONLY a JSON object with any new/updated fields using LOWERCASE field names.
-      Example response: {"name": "Carlos", "problem": "no tengo clientes", "budget": 500}
+      if (message.toLowerCase() === 'si' || message.toLowerCase() === 'sí' || message.toLowerCase() === 'yes' || message.toLowerCase() === 'sí.') {
+        // Check if last assistant message contains a budget question with a number
+        const budgetMatch = lastAssistantQuestion.match(/\$?(\d+)/);
+        const containsBudgetQuestion = lastAssistantQuestion.toLowerCase().includes('presupuesto') || 
+                                       lastAssistantQuestion.toLowerCase().includes('budget');
+        
+        logger.debug('Budget match check', { 
+          budgetMatch: budgetMatch?.[1], 
+          containsBudgetQuestion
+        });
+        
+        if (budgetMatch && containsBudgetQuestion) {
+          logger.info('✅ Si confirmation detected for budget', { 
+            extractedBudget: budgetMatch[1] 
+          });
+          
+          // Directly return the extracted budget
+          const extractedBudget = parseInt(budgetMatch[1]);
+          const merged = { ...currentInfo, budget: extractedBudget };
+          
+          logger.info('✅ BUDGET EXTRACTED FROM SI CONFIRMATION', {
+            toolCallId,
+            budget: extractedBudget,
+            processingTime: Date.now() - startTime
+          });
+          
+          return new Command({
+            update: {
+              leadInfo: merged,
+              extractionCount: extractionCount + 1,
+              processedMessages: [...processedMessages, messageHash],
+              messages: [{
+                role: "tool",
+                content: `Extracted: {"budget": ${extractedBudget}}`,
+                tool_call_id: toolCallId
+              }]
+            }
+          });
+        }
+      }
       
-      Do NOT include fields that haven't changed or weren't mentioned.`;
+      const prompt = `Analyze this customer message IN THE CONTEXT of the conversation:
+
+CONVERSATION CONTEXT:
+${conversationContext}
+
+CURRENT MESSAGE TO ANALYZE: "${message}"
+
+IMPORTANT CONTEXT RULES:
+1. If customer says "all", "todo", "toda la información" after a multi-part question - they're responding to ALL parts
+2. If customer says "si", "sí", "yes" - they're confirming what was asked in the previous message
+3. If assistant asked about budget and customer responds with just a number (like "500") - that's the budget
+4. If assistant asked for name and customer responds with just a name - extract it
+5. If assistant asked "Is your budget $X?" and customer says "si" - extract budget: X
+
+Last assistant message: "${lastAssistantQuestion}"
+
+Current info we already have: ${JSON.stringify(currentInfo)}
+
+Extract any NEW information (if mentioned):
+- name (person's name)
+- businessType (restaurant, store, clinic, salon, etc)
+- problem (their pain point or challenge - e.g., "no tengo clientes", "necesito más ventas", "nesesito mas clientez" (with typos))
+- goal (what they want to achieve - e.g., "crecer mi negocio", "vender $10k al mes", "mas clientez")
+- budget (IMPORTANT: Numbers with "mes", "mensual", "al mes", "por mes", "$" or standalone numbers after budget questions)
+- email (email address)
+- businessDetails (any specific details about their business)
+- returningCustomer (true if they mention "hablamos ayer", "ya hablamos", "we spoke yesterday", etc.)
+
+IMPORTANT: Be VERY flexible with typos and spelling errors. Common typos:
+- "nesesito", "nesecito", "nesisito" = "necesito"
+- "clientez", "clientes" = "clientes"
+- "ola", "hola" = "hola"
+- "soi", "soy" = "soy"
+- "mas", "más" = "más"
+- Always extract the intended meaning despite spelling errors.
+
+IMPORTANT: Extract ALL fields mentioned in the message, even if multiple fields are in one message.
+Example: "Hola, soy María, tengo una tienda online, no vendo nada, quiero vender $10k al mes, mi presupuesto es $800, mi email es maria@shop.com"
+Should extract: {"name": "María", "businessType": "tienda online", "problem": "no vendo nada", "goal": "vender $10k al mes", "budget": 800, "email": "maria@shop.com"}
+
+For contextual responses:
+- "si" after "¿Tu presupuesto es de $500?" → Extract budget: 500
+- "si" after "¿Tu presupuesto mensual es de $500?" → Extract budget: 500
+- "300" after "¿Cuál es tu presupuesto?" → Extract budget: 300
+- "espera, puedo hacer $400" → Extract budget: 400 (update even if budget was already set)
+- "mejor $X" or "puedo hacer $X" → Always update to new budget amount
+- "all" after multi-part question → Ask for specific details
+- Single name after "¿Cómo te llamas?" → Extract as name
+
+IMPORTANT: When user says "si" or "sí", check the previous assistant message:
+- If it contains a number with $ or mentions budget, extract that number as budget
+- If it asks a yes/no question about a specific value, extract that value
+
+Example extraction:
+Assistant: "¿Tu presupuesto mensual es de $500?"
+Customer: "si"
+You should extract: {"budget": 500}
+
+Return ONLY a JSON object with any new/updated fields using LOWERCASE field names.
+Example: {"name": "Carlos", "problem": "no tengo clientes", "budget": 500}
+
+Do NOT include fields that haven't changed or weren't mentioned.`;
       
       const response = await llm.invoke([
-        new SystemMessage("You extract information from messages. Return only valid JSON with ONLY new/changed fields. Use lowercase field names: name, businessType, problem, goal, budget, email, businessDetails."),
+        new SystemMessage("You extract information from messages WITH CONTEXT. When user says 'si' to confirm a value, extract that value. Return only valid JSON with ONLY new/changed fields. Use lowercase field names: name, businessType, problem, goal, budget, email, businessDetails."),
         { role: "user", content: prompt }
       ]);
       
@@ -279,15 +399,36 @@ const extractLeadInfo = tool(
           processingTime: Date.now() - startTime
         });
         
+        // Check if all fields are now present for calendar
+        // Handle budget that might be a string like "$800" or "800"
+        let budgetValue = merged.budget;
+        if (typeof budgetValue === 'string') {
+          budgetValue = parseInt(budgetValue.replace(/[$,]/g, ''));
+        }
+        
+        const hasAllFields = merged.name && merged.problem && merged.goal && 
+                            budgetValue && budgetValue >= config.minBudget && merged.email;
+        
+        if (hasAllFields) {
+          logger.info('🎯 ALL FIELDS COLLECTED - Ready for calendar', {
+            name: merged.name,
+            problem: merged.problem,
+            goal: merged.goal,
+            budget: merged.budget,
+            email: merged.email
+          });
+        }
+        
         // Return Command object with state updates and tool message
         return new Command({
           update: {
             leadInfo: merged,
             extractionCount: extractionCount + 1,
             processedMessages: [...processedMessages, messageHash],
+            allFieldsCollected: hasAllFields,
             messages: [{
               role: "tool",
-              content: `Extracted: ${JSON.stringify(extracted)}`,
+              content: `Extracted: ${JSON.stringify(extracted)}${hasAllFields ? '\nALL_FIELDS_READY: Show calendar now!' : ''}`,
               tool_call_id: toolCallId
             }]
           }
@@ -310,7 +451,11 @@ const extractLeadInfo = tool(
         });
       }
     } catch (error) {
-      logger.error('Error in extractLeadInfo tool', { error: error.message });
+      logger.error('Error in extractLeadInfo tool', { 
+        error: error.message,
+        stack: error.stack,
+        toolCallId 
+      });
       return new Command({ 
         update: {
           extractionCount: extractionCount + 1, // Count all attempts including errors
@@ -346,12 +491,9 @@ const getCalendarSlots = tool(
   async ({ startDate, endDate }, config) => {
     const toolCallId = config.toolCall?.id || 'get_calendar_slots';
     
-    // Access current state - check multiple sources for state
-    const graphState = config?.getState ? await config.getState() : null;
-    const configState = config?.configurable || {};
-    // Prefer graph state if available, otherwise use config
-    const currentState = graphState || configState;
-    const currentLeadInfo = currentState.leadInfo || {};
+    // Access state from __pregel_scratchpad.currentTaskInput
+    const currentTaskInput = config?.configurable?.__pregel_scratchpad?.currentTaskInput || {};
+    const currentLeadInfo = currentTaskInput.leadInfo || config?.configurable?.leadInfo || {};
     
     // Initialize services if not provided
     let ghlService = config?.configurable?.ghlService;
@@ -512,12 +654,9 @@ const bookAppointment = tool(
   async ({ slot, leadName, leadEmail }, config) => {
     const toolCallId = config.toolCall?.id || 'book_appointment';
     
-    // Access current state - check multiple sources for state
-    const graphState = config?.getState ? await config.getState() : null;
-    const configState = config?.configurable || {};
-    // Prefer graph state if available, otherwise use config
-    const currentState = graphState || configState;
-    const contactId = currentState.contactId || config?.configurable?.contactId;
+    // Access state from __pregel_scratchpad.currentTaskInput
+    const currentTaskInput = config?.configurable?.__pregel_scratchpad?.currentTaskInput || {};
+    const contactId = currentTaskInput.contactId || config?.configurable?.contactId;
     
     if (!contactId) {
       throw new Error('contactId not found in state. Cannot book appointment.');
@@ -603,13 +742,10 @@ const updateGHLContact = tool(
   async ({ tags, notes }, config) => {
     const toolCallId = config.toolCall?.id || 'update_ghl_contact';
     
-    // Access current state - check multiple sources for state
-    const graphState = config?.getState ? await config.getState() : null;
-    const configState = config?.configurable || {};
-    // Prefer graph state if available, otherwise use config
-    const currentState = graphState || configState;
-    const contactId = currentState.contactId || config?.configurable?.contactId;
-    const leadInfo = currentState.leadInfo || {};
+    // Access state from __pregel_scratchpad.currentTaskInput
+    const currentTaskInput = config?.configurable?.__pregel_scratchpad?.currentTaskInput || {};
+    const contactId = currentTaskInput.contactId || config?.configurable?.contactId;
+    const leadInfo = currentTaskInput.leadInfo || {};
     
     if (!contactId) {
       throw new Error('contactId not found in state. Cannot update contact.');
@@ -710,8 +846,15 @@ const parseTimeSelection = tool(
   async ({ userMessage }, config) => {
     const toolCallId = config.toolCall?.id || 'parse_time_selection';
     
-    // Access current state to get available slots
-    const currentState = config?.getState ? await config.getState() : config?.configurable || {};
+    // Access current state - get from the annotation state
+    const currentState = config.runnable_config?.store?.get() || {};
+    
+    // If that doesn't work, try alternate paths
+    if (!currentState.availableSlots && config.configurable) {
+      // Try getting from configurable directly
+      Object.assign(currentState, config.configurable);
+    }
+    
     const availableSlots = currentState.availableSlots || [];
     
     if (!availableSlots || availableSlots.length === 0) {
@@ -732,6 +875,14 @@ const parseTimeSelection = tool(
     ${availableSlots.map(s => `${s.index}. ${s.display}`).join('\n')}
     
     User said: "${userMessage}"
+    
+    IMPORTANT: Be flexible with time expressions:
+    - "el martes a las 3" = Tuesday at 3pm
+    - "mañana" = tomorrow 
+    - "la primera" = option 1
+    - "la segunda opción" = option 2
+    - "el lunes" = Monday
+    - Numbers like "1", "2", "3" refer to option numbers
     
     Return the index number (1-5) of their selection, or 0 if unclear.
     Return ONLY a number.`;
@@ -790,12 +941,9 @@ const sendGHLMessage = tool(
       messagePreview: message.substring(0, 50)
     });
     
-    // Access current state - check multiple sources for state
-    const graphState = config?.getState ? await config.getState() : null;
-    const configState = config?.configurable || {};
-    // Prefer graph state if available, otherwise use config
-    const currentState = graphState || configState;
-    const contactId = currentState.contactId || config?.configurable?.contactId;
+    // Access state from __pregel_scratchpad.currentTaskInput
+    const currentTaskInput = config?.configurable?.__pregel_scratchpad?.currentTaskInput || {};
+    const contactId = currentTaskInput.contactId || config?.configurable?.contactId;
     
     if (!contactId) {
       logger.error('❌ NO CONTACT ID', { toolCallId });
@@ -833,17 +981,22 @@ const sendGHLMessage = tool(
         totalTime: Date.now() - startTime
       });
       
+      // Check if message contains calendar slots to signal waiting for user response
+      const containsCalendarSlots = message.includes('disponibles') && 
+                                   (message.includes('1.') || message.includes('Opción 1'));
+      
       // Return Command object with tool message
       return new Command({
         update: {
           messages: [
             {
               role: "tool",
-              content: `Message sent successfully: "${message.substring(0, 50)}..."`,
+              content: `Message sent successfully: "${message.substring(0, 50)}..."${containsCalendarSlots ? '\nCALENDAR_SHOWN: Waiting for user selection' : ''}`,
               tool_call_id: toolCallId
             }
           ],
-          lastUpdate: new Date().toISOString()
+          lastUpdate: new Date().toISOString(),
+          calendarShown: containsCalendarSlots
         }
       });
     } catch (error) {
@@ -881,10 +1034,13 @@ Language: Spanish (Texas style)
 
 🚨 CRITICAL RULES 🚨
 1. NEVER respond directly - ONLY use send_ghl_message tool
-2. Check leadInfo state BEFORE asking questions
-3. If appointmentBooked=true, only handle follow-up questions
-4. NEVER mention calendar, scheduling, or appointments until leadInfo has ALL fields (name, problem, goal, budget >= ${config.minBudget}, email)
-5. If asked about scheduling before qualified, say "Primero necesito conocer más sobre tu negocio"
+2. ALWAYS introduce yourself: "¡Hola! Soy María" in first greeting
+3. Check leadInfo state BEFORE asking questions
+4. If appointmentBooked=true, only handle follow-up questions
+5. If calendarShown=true, STOP and wait for customer to select a time - do NOT call any tools
+6. NEVER mention calendar until ALL fields collected AND budget >= ${config.minBudget}
+7. AUTO-TRIGGER: When name, problem, goal, budget >= ${config.minBudget}, email ALL present → IMMEDIATELY call get_calendar_slots
+8. If asked about scheduling before qualified, say "Primero necesito conocer más sobre tu negocio"
 
 EXTRACTION LIMITS:
 - If maxExtractionReached=true, don't call extract_lead_info anymore
@@ -892,7 +1048,10 @@ EXTRACTION LIMITS:
 
 TOOL USAGE PATTERN:
 1. extract_lead_info → Analyze message (pass ONLY message)
-2. send_ghl_message + update_ghl_contact → Execute in PARALLEL
+2. AFTER extraction, CHECK: 
+   - If tool message contains "ALL_FIELDS_READY" → call get_calendar_slots IMMEDIATELY
+   - If allFieldsCollected=true → call get_calendar_slots IMMEDIATELY
+3. Otherwise → send_ghl_message + update_ghl_contact → Execute in PARALLEL
 
 QUALIFICATION FLOW (based on merged leadInfo):
 1. No name → Ask for name
@@ -900,7 +1059,7 @@ QUALIFICATION FLOW (based on merged leadInfo):
 3. Has problem, no goal → Ask about goal  
 4. Has goal, no budget → Ask about budget
 5. Budget >= $${config.minBudget}, no email → Ask for email
-6. Has all info → Show calendar slots
+6. Has all info (name, problem, goal, budget >= $${config.minBudget}, email) → IMMEDIATELY call get_calendar_slots tool
 
 CONTEXT AWARENESS:
 - leadInfo contains ALL known data
@@ -915,6 +1074,12 @@ PERSONALITY:
 
 Budget < $${config.minBudget}: Tag "nurture-lead", explain minimum
 Budget >= $${config.minBudget}: Continue to scheduling
+
+CALENDAR HANDLING:
+- After showing calendar slots with send_ghl_message, calendarShown will be set to true
+- When calendarShown=true, STOP ALL PROCESSING - do NOT call any tools
+- Wait for customer to select a time before continuing
+- When customer selects a time, use parse_time_selection → book_appointment
 
 After booking: appointmentBooked=true - only answer questions`;
 
@@ -947,6 +1112,8 @@ const promptFunction = (state) => {
   
   if (appointmentBooked) {
     systemPrompt += `\n\nAPPOINTMENT ALREADY BOOKED. Only answer follow-up questions.`;
+  } else if (state.calendarShown) {
+    systemPrompt += `\n\n📅 CALENDAR SHOWN. STOP ALL PROCESSING. Wait for customer to select a time. Do NOT call any tools.`;
   } else if (leadInfo && leadInfo.budget && leadInfo.budget >= config.minBudget) {
     systemPrompt += `\n\nQualified lead with budget: $${leadInfo.budget}/month. Ready to show calendar.`;
   }
@@ -1014,6 +1181,15 @@ export const salesAgent = createReactAgent({
   checkpointer: checkpointer,
   prompt: promptFunction,  // Dynamic prompt function
   preModelHook: preModelHook,  // Message windowing
+  interruptBefore: ["agent"],  // Allow interruption before agent node
+  shouldContinue: (state) => {
+    // Stop processing if calendar has been shown and we're waiting for user response
+    if (state.calendarShown && !state.appointmentBooked) {
+      logger.info('🛑 Stopping agent - calendar shown, waiting for user selection');
+      return false;  // Stop the agent
+    }
+    return true;  // Continue processing
+  }
 });
 
 // Keep graph export for backwards compatibility
@@ -1132,7 +1308,7 @@ export async function salesAgentInvoke(input, agentConfig) {
     const result = await Promise.race([
       salesAgent.invoke(initialState, {
         ...enhancedConfig,
-        recursionLimit: 25, // Prevent infinite loops
+        recursionLimit: 50, // Increased limit to handle complex conversations
         configurable: {
           ...enhancedConfig.configurable,
           // Ensure state is available to tools
