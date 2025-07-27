@@ -83,6 +83,11 @@ const AgentStateAnnotation = Annotation.Root({
     default: () => false
   }),
   
+  // Track if max extraction attempts reached
+  maxExtractionReached: Annotation({
+    default: () => false
+  }),
+  
   // Last update timestamp
   lastUpdate: Annotation({
     default: () => null
@@ -109,6 +114,47 @@ const extractLeadInfo = tool(
       const currentState = graphState || configState;
       const currentLeadInfo = currentState.leadInfo || {};
       const extractionCount = currentState.extractionCount || 0;
+      const processedMessages = currentState.processedMessages || [];
+      
+      // Check extraction attempt limit
+      const MAX_EXTRACTION_ATTEMPTS = 3;
+      if (extractionCount >= MAX_EXTRACTION_ATTEMPTS) {
+        logger.warn('⚠️ Max extraction attempts reached', {
+          toolCallId,
+          extractionCount,
+          maxAttempts: MAX_EXTRACTION_ATTEMPTS
+        });
+        
+        return new Command({
+          update: {
+            maxExtractionReached: true,
+            messages: [{
+              role: "tool",
+              content: "Max extraction attempts reached. Continue with available info.",
+              tool_call_id: toolCallId
+            }]
+          }
+        });
+      }
+      
+      // Check if message was already processed
+      const messageHash = crypto.createHash('md5').update(message.toLowerCase().trim()).digest('hex');
+      if (processedMessages.includes(messageHash)) {
+        logger.debug('Message already processed', {
+          toolCallId,
+          messageHash
+        });
+        
+        return new Command({
+          update: {
+            messages: [{
+              role: "tool",
+              content: "Message already processed. No new info.",
+              tool_call_id: toolCallId
+            }]
+          }
+        });
+      }
       
       logger.debug('📊 Current extraction state', {
         toolCallId,
@@ -191,6 +237,8 @@ const extractLeadInfo = tool(
           // Still need to return a tool message for the tool call
           return new Command({
             update: {
+              extractionCount: extractionCount + 1, // Count failed attempts too
+              processedMessages: [...processedMessages, messageHash],
               messages: [{
                 role: "tool",
                 content: "No new information extracted from message",
@@ -221,6 +269,7 @@ const extractLeadInfo = tool(
           update: {
             leadInfo: merged,
             extractionCount: extractionCount + 1,
+            processedMessages: [...processedMessages, messageHash],
             messages: [{
               role: "tool",
               content: `Extracted: ${JSON.stringify(extracted)}`,
@@ -235,6 +284,8 @@ const extractLeadInfo = tool(
         });
         return new Command({ 
           update: {
+            extractionCount: extractionCount + 1, // Count errors too
+            processedMessages: [...processedMessages, messageHash],
             messages: [{
               role: "tool",
               content: `Error parsing response: ${e.message}`,
@@ -247,6 +298,8 @@ const extractLeadInfo = tool(
       logger.error('Error in extractLeadInfo tool', { error: error.message });
       return new Command({ 
         update: {
+          extractionCount: extractionCount + 1, // Count all attempts including errors
+          processedMessages: [...processedMessages, messageHash],
           messages: [{
             role: "tool",
             content: `Error extracting info: ${error.message}`,
@@ -818,6 +871,10 @@ Language: Spanish (Texas style)
 4. NEVER mention calendar, scheduling, or appointments until leadInfo has ALL fields (name, problem, goal, budget >= $300, email)
 5. If asked about scheduling before qualified, say "Primero necesito conocer más sobre tu negocio"
 
+EXTRACTION LIMITS:
+- If maxExtractionReached=true, don't call extract_lead_info anymore
+- If customer asks about times/hours without full info, redirect: "¡Claro! Pero primero necesito conocer un poco más sobre tu negocio para asegurarme de que podemos ayudarte."
+
 TOOL USAGE PATTERN:
 1. extract_lead_info → Analyze message (pass ONLY message)
 2. send_ghl_message + update_ghl_contact → Execute in PARALLEL
@@ -868,7 +925,7 @@ const tools = [
 
 // Dynamic prompt function that uses state
 const promptFunction = (state) => {
-  const { leadInfo, appointmentBooked } = state;
+  const { leadInfo, appointmentBooked, maxExtractionReached } = state;
   
   // Build context-aware prompt
   let systemPrompt = SALES_AGENT_PROMPT;
@@ -877,6 +934,10 @@ const promptFunction = (state) => {
     systemPrompt += `\n\nAPPOINTMENT ALREADY BOOKED. Only answer follow-up questions.`;
   } else if (leadInfo && leadInfo.budget && leadInfo.budget >= 300) {
     systemPrompt += `\n\nQualified lead with budget: $${leadInfo.budget}/month. Ready to show calendar.`;
+  }
+  
+  if (maxExtractionReached) {
+    systemPrompt += `\n\n⚠️ MAX EXTRACTION ATTEMPTS REACHED. Do NOT use extract_lead_info anymore. Continue conversation naturally.`;
   }
   
   return [
