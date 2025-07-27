@@ -416,18 +416,21 @@ async function webhookHandlerNode(state, config) {
   }
   
   // Build messages array for the agent
-  // Note: If we already replaced the JSON message above, use the current state messages
+  // CRITICAL FIX: Only pass the CURRENT message to the agent
+  // History is available in leadInfo but agent only processes the latest message
   const agentMessages = state.messages.length === 1 && webhookData.message ? 
-    [...conversationState.messages, state.messages[0]] :
-    [...conversationState.messages, new HumanMessage(message)];
+    [state.messages[0]] :  // Only current message
+    [new HumanMessage(message)];  // Only current message
+  
+  // Store history in a separate variable for context (not for processing)
+  const conversationHistory = conversationState.messages;
   
   logger.info('📦 PREPARING AGENT INVOCATION', {
     traceId,
-    totalMessages: agentMessages.length,
-    historyMessages: conversationState.messages.length,
-    newMessages: 1,
-    lastHistoryMessage: conversationState.messages[conversationState.messages.length - 1]?.content?.substring(0, 50),
-    newMessage: message.substring(0, 50)
+    agentMessages: agentMessages.length,  // Should always be 1
+    historyAvailable: conversationHistory.length,
+    currentMessage: message.substring(0, 50),
+    leadInfoFromHistory: !!conversationState.leadName || !!conversationState.leadBudget
   });
   
   // Extract current lead info for context
@@ -456,11 +459,13 @@ async function webhookHandlerNode(state, config) {
   
   const agentStartTime = Date.now();
   const result = await salesAgentInvoke({
-    messages: agentMessages,
+    messages: agentMessages,  // Only current message
     // Pass current lead info as context
     leadInfo: currentLeadInfo,
     contactId,
-    conversationId: conversationState.conversationId
+    conversationId: conversationState.conversationId,
+    // Pass conversation history separately for context
+    conversationHistory: conversationHistory
   }, {
     // Configuration for tools - matching config parameter pattern
     configurable: {
