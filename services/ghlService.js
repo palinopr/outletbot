@@ -132,6 +132,11 @@ export class GHLService {
   
   // Retry interceptor with exponential backoff
   async retryInterceptor(error) {
+    // Check if error has config
+    if (!error.config) {
+      throw error;
+    }
+    
     const config = error.config;
     
     // Initialize retry count

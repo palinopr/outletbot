@@ -719,12 +719,33 @@ const getCalendarSlots = tool(
     const end = endDate || new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
     
     try {
-      // Use global calendar cache
-      const slots = await calendarCache.getSlots(start, end);
+      // TEMPORARY: Direct call to GHL instead of cache (cache initialization commented out)
+      const endDate = new Date(start);
+      endDate.setDate(endDate.getDate() + 7); // 7 days from start
       
-      logger.debug('Retrieved calendar slots', {
+      const slotsData = await ghlService.getAvailableSlots(
+        calendarId,
+        new Date(start),
+        endDate
+      );
+      
+      // Convert GHL format to array of slots
+      const slots = [];
+      for (const dateKey in slotsData) {
+        if (slotsData[dateKey] && slotsData[dateKey].slots) {
+          slotsData[dateKey].slots.forEach(slotTime => {
+            slots.push({
+              startTime: slotTime,
+              endTime: new Date(new Date(slotTime).getTime() + 30 * 60000).toISOString(),
+              date: dateKey
+            });
+          });
+        }
+      }
+      
+      logger.debug('Retrieved calendar slots directly from GHL', {
         count: slots.length,
-        cacheStats: calendarCache.getStats()
+        daysWithSlots: Object.keys(slotsData).length
       });
       
       // Format slots for display in Spanish with Texas timezone
