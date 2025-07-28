@@ -46,9 +46,9 @@ export default async function handler(req, res) {
       });
     }
 
-    // CRITICAL FIX: Use conversationId as thread_id for continuity
-    // If no conversationId, use contactId to ensure same contact keeps same thread
-    const threadId = conversationId || `thread_${contactId}`;
+    // CRITICAL FIX: Use contactId as thread_id for continuity
+    // This ensures all messages from the same contact stay in the same conversation
+    const threadId = `contact_${contactId}`;
     
     logger.info('Using thread ID for continuity', {
       threadId,
