@@ -347,10 +347,14 @@ You should extract: {"budget": 500}
 Return ONLY a JSON object with any new/updated fields using LOWERCASE field names.
 Example: {"name": "Carlos", "problem": "no tengo clientes", "budget": 500}
 
-Do NOT include fields that haven't changed or weren't mentioned.`;
+CRITICAL: Do NOT include fields that haven't changed or weren't mentioned.
+NEVER return empty strings like {"problem": "", "goal": ""}
+ONLY return fields with actual values from the current message.
+If the message only mentions budget, return ONLY {"budget": 500}
+If the message only mentions name, return ONLY {"name": "Juan"}`;
       
       const response = await llm.invoke([
-        new SystemMessage("You extract information from messages WITH CONTEXT. When user says 'si' to confirm a value, extract that value. Return only valid JSON with ONLY new/changed fields. Use lowercase field names: name, businessType, problem, goal, budget, email, businessDetails."),
+        new SystemMessage("You extract information from messages WITH CONTEXT. When user says 'si' to confirm a value, extract that value. Return only valid JSON with ONLY new/changed fields. NEVER include empty strings, null values, or fields that weren't mentioned in the current message. Use lowercase field names: name, businessType, problem, goal, budget, email, businessDetails."),
         { role: "user", content: prompt }
       ]);
       
@@ -362,6 +366,16 @@ Do NOT include fields that haven't changed or weren't mentioned.`;
           extracted.businessType = extracted.businesstype;
           delete extracted.businesstype;
         }
+        
+        // Remove any empty/null/undefined fields before merging
+        Object.keys(extracted).forEach(key => {
+          if (extracted[key] === null || 
+              extracted[key] === undefined || 
+              extracted[key] === "" ||
+              (key !== 'budget' && extracted[key] === 0)) {
+            delete extracted[key];
+          }
+        });
         
         // Only update if there are actual changes
         const hasChanges = Object.keys(extracted).length > 0;
@@ -384,16 +398,27 @@ Do NOT include fields that haven't changed or weren't mentioned.`;
           });
         }
         
-        // Merge with existing info
+        // Merge with existing info - ONLY update fields that have values
         const merged = { ...currentInfo };
         Object.keys(extracted).forEach(key => {
-          if (extracted[key] !== null && extracted[key] !== undefined && extracted[key] !== "") {
+          // Only update if the extracted value is not empty/null/undefined
+          // This prevents clearing existing data
+          if (extracted[key] !== null && 
+              extracted[key] !== undefined && 
+              extracted[key] !== "" &&
+              extracted[key] !== 0) { // Don't overwrite with 0 unless it's budget
+            merged[key] = extracted[key];
+          } else if (key === 'budget' && extracted[key] === 0) {
+            // Special case: budget can be legitimately 0
             merged[key] = extracted[key];
           }
         });
         
         logger.info('✅ LEAD INFO EXTRACTED', {
           toolCallId,
+          rawExtracted: extracted,
+          currentInfoBefore: currentInfo,
+          mergedResult: merged,
           extractedFields: Object.keys(extracted),
           mergedFields: Object.keys(merged).filter(k => merged[k]),
           newBudget: extracted.budget,
@@ -419,6 +444,15 @@ Do NOT include fields that haven't changed or weren't mentioned.`;
             email: merged.email
           });
         }
+        
+        // Log the merge result for debugging
+        logger.warn('🔍 STATE BUILDING DEBUG', {
+          currentInfoBefore: currentInfo,
+          extractedData: extracted,
+          mergedResult: merged,
+          problemField: merged.problem,
+          goalField: merged.goal
+        });
         
         // Build detailed state summary for the agent
         const stateInfo = {

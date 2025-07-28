@@ -1,0 +1,51 @@
+version: '3.8'
+
+services:
+  # LangGraph API Server (mimics production)
+  langgraph:
+    image: langchain/langgraph-api:latest
+    ports:
+      - "8123:8123"
+    environment:
+      - NODE_ENV=production
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - GHL_API_KEY=${GHL_API_KEY}
+      - GHL_LOCATION_ID=${GHL_LOCATION_ID}
+      - GHL_CALENDAR_ID=${GHL_CALENDAR_ID}
+      - LANGSMITH_API_KEY=${LANGSMITH_API_KEY}
+      - LANGCHAIN_TRACING_V2=true
+      - LANGCHAIN_PROJECT=outlet-media-bot
+    volumes:
+      # Mount your code as /deps/outletbot (like production!)
+      - ./:/deps/outletbot:ro
+      - ./langgraph.json:/app/langgraph.json:ro
+    command: ["serve", "--host", "0.0.0.0", "--port", "8123"]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8123/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Redis for state persistence (like production)
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+
+  # PostgreSQL for checkpointing (optional)
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      - POSTGRES_DB=langgraph
+      - POSTGRES_USER=langgraph
+      - POSTGRES_PASSWORD=langgraph123
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+volumes:
+  redis_data:
+  postgres_data:
