@@ -83,29 +83,28 @@ interceptLangSmithRequests();
 let ghlService;
 let conversationManager;
 
-// Message deduplication cache with automatic cleanup
-class MessageCache {
+// FIXED: Thread-aware message cache for proper deduplication
+class ThreadAwareMessageCache {
   constructor(ttl = 10 * 60 * 1000) {
     this.cache = new Map();
-    this.ttl = config.features.enableDeduplication ? ttl : 0;
-    
-    // Start cleanup interval if deduplication is enabled
-    if (this.ttl > 0) {
-      this.cleanupInterval = setInterval(() => this.cleanup(), 60000); // Clean every minute
-    }
+    this.ttl = ttl;
+    this.cleanupInterval = setInterval(() => this.cleanup(), 60000);
   }
   
-  add(key, value = Date.now()) {
-    if (this.ttl === 0) return;
+  getKey(threadId, messageHash) {
+    return `${threadId}:${messageHash}`;
+  }
+  
+  add(threadId, messageHash, value = Date.now()) {
+    const key = this.getKey(threadId, messageHash);
     this.cache.set(key, { timestamp: value, data: true });
   }
   
-  has(key) {
-    if (this.ttl === 0) return false;
+  has(threadId, messageHash) {
+    const key = this.getKey(threadId, messageHash);
     const entry = this.cache.get(key);
     if (!entry) return false;
     
-    // Check if expired
     if (Date.now() - entry.timestamp > this.ttl) {
       this.cache.delete(key);
       return false;
@@ -120,25 +119,17 @@ class MessageCache {
         this.cache.delete(key);
       }
     }
-    logger.debug('Message cache cleanup', { 
-      size: this.cache.size,
-      ttl: this.ttl 
-    });
-  }
-  
-  clear() {
-    this.cache.clear();
   }
   
   stop() {
     if (this.cleanupInterval) {
       clearInterval(this.cleanupInterval);
     }
-    this.clear();
+    this.cache.clear();
   }
 }
 
-const processedMessages = new MessageCache();
+const processedMessages = new ThreadAwareMessageCache();
 
 // Register cleanup on shutdown
 if (typeof onShutdown === 'function') {
@@ -241,8 +232,7 @@ async function initialize(retries = 3) {
 }
 
 /**
- * Webhook handler node for processing incoming messages
- * Follows LangGraph best practices with state management
+ * UPDATED webhook handler node with proper state management
  * @param {Object} state - Current graph state
  * @param {Array} state.messages - Message history
  * @param {string} state.contactId - GHL contact identifier
@@ -252,14 +242,22 @@ async function initialize(retries = 3) {
  */
 async function webhookHandlerNode(state, config) {
   const startTime = Date.now();
-  // Generate a proper UUID if no runId provided
   const traceId = config?.runId || crypto.randomUUID();
+  
+  // CRITICAL: Get thread ID for conversation continuity
+  const threadId = config?.configurable?.thread_id || 
+                   state.threadId || 
+                   config?.configurable?.__pregel_thread_id ||
+                   `thread_${state.contactId}`;
   
   logger.info('🔍 WEBHOOK HANDLER START', {
     traceId,
+    threadId,
     stateMessagesCount: state.messages?.length || 0,
     hasContactId: !!state.contactId,
     hasPhone: !!state.phone,
+    hasLeadInfo: !!state.leadInfo,
+    existingLeadFields: state.leadInfo ? Object.keys(state.leadInfo).filter(k => state.leadInfo[k]) : [],
     timestamp: new Date().toISOString()
   });
   
@@ -417,41 +415,31 @@ async function webhookHandlerNode(state, config) {
   }
   */
   
-  // Create message hash for deduplication
+  // Check message deduplication with thread awareness
   const messageHash = crypto.createHash('md5')
     .update(`${contactId}-${message}-${phone}`)
     .digest('hex');
   
-  // Check if we've already processed this exact message recently
-  const enableDeduplication = config?.configurable?.features?.enableDeduplication ?? true;
-  if (enableDeduplication && processedMessages.has(messageHash)) {
-    const processedTime = Date.now();
-    const timeSince = Date.now() - processedTime;
+  if (processedMessages.has(threadId, messageHash)) {
     logger.info('🔁 DUPLICATE MESSAGE DETECTED', {
       traceId,
+      threadId,
       contactId,
-      messagePreview: message.substring(0, 30) + '...',
-      hash: messageHash,
-      timeSinceProcessed: timeSince,
-      processingSkipped: true
+      messagePreview: message.substring(0, 30) + '...'
     });
     
-    // Return empty state to indicate no processing needed
     return {
       messages: state.messages,
-      duplicate: true
+      duplicate: true,
+      cached: true,  // Duplicate messages are effectively cached
+      contactId: state.contactId,
+      phone: state.phone,
+      leadInfo: state.leadInfo,
+      threadId
     };
   }
   
-  // Mark message as processed
-  if (enableDeduplication) {
-    processedMessages.add(messageHash, Date.now());
-    logger.debug('📌 Message marked as processed', {
-      traceId,
-      hash: messageHash,
-      cacheSize: processedMessages.size
-    });
-  }
+  processedMessages.add(threadId, messageHash);
   
   logger.info('✅ WEBHOOK VALIDATION PASSED', { 
     traceId,
@@ -462,15 +450,15 @@ async function webhookHandlerNode(state, config) {
     hash: messageHash
   });
   
-  // Get conversationId from state or config
+  // Get conversation state WITH thread awareness
   const conversationId = state.conversationId || config?.configurable?.conversationId || null;
   
   logger.info('🔄 FETCHING CONVERSATION STATE', {
     traceId,
+    threadId,
     contactId,
     conversationId,
-    phone,
-    conversationIdProvided: !!conversationId
+    phone
   });
   
   const conversationStatePromise = conversationManager.getConversationState(
@@ -492,11 +480,16 @@ async function webhookHandlerNode(state, config) {
     
     logger.info('✅ CONVERSATION STATE FETCHED', {
       traceId,
+      threadId,
       conversationId: conversationState.conversationId,
       messageCount: conversationState.messages?.length || 0,
-      hasLeadInfo: !!(conversationState.leadName || conversationState.leadEmail),
-      leadName: conversationState.leadName || 'not-set',
-      leadBudget: conversationState.leadBudget || 'not-set'
+      existingLeadInfo: {
+        name: conversationState.leadName,
+        problem: conversationState.leadProblem,
+        goal: conversationState.leadGoal,
+        budget: conversationState.leadBudget,
+        email: conversationState.leadEmail
+      }
     });
   } catch (error) {
     logger.error('❌ CONVERSATION FETCH FAILED', { 
@@ -537,15 +530,29 @@ async function webhookHandlerNode(state, config) {
     leadInfoFromHistory: !!conversationState.leadName || !!conversationState.leadBudget
   });
   
-  // Extract current lead info for context
+  // CRITICAL: Merge existing lead info with any passed state
   const currentLeadInfo = {
-    name: conversationState.leadName,
-    problem: conversationState.leadProblem,
-    goal: conversationState.leadGoal,
-    budget: conversationState.leadBudget,
-    email: conversationState.leadEmail,
-    phone: formatPhoneNumber(phone)
+    name: state.leadInfo?.name || conversationState.leadName,
+    problem: state.leadInfo?.problem || conversationState.leadProblem,
+    goal: state.leadInfo?.goal || conversationState.leadGoal,
+    budget: state.leadInfo?.budget || conversationState.leadBudget,
+    email: state.leadInfo?.email || conversationState.leadEmail,
+    phone: formatPhoneNumber(phone),
+    businessType: state.leadInfo?.businessType || conversationState.leadBusinessType
   };
+  
+  logger.info('📋 MERGED LEAD INFO', {
+    traceId,
+    threadId,
+    currentLeadInfo,
+    hasAllRequiredInfo: !!(
+      currentLeadInfo.name && 
+      currentLeadInfo.problem && 
+      currentLeadInfo.goal && 
+      currentLeadInfo.budget && 
+      currentLeadInfo.email
+    )
+  });
   
   logger.debug('📋 Current lead info', {
     traceId,
@@ -620,22 +627,25 @@ async function webhookHandlerNode(state, config) {
   if (cachedResponse) {
     logger.info('💨 USING CACHED RESPONSE', {
       traceId,
+      threadId,
       message: message.substring(0, 50),
-      cachedResponseLength: cachedResponse.length,
-      savedTokens: 3822  // Average tokens saved
+      savedTokens: 3822
     });
     
-    // Send cached response directly
     try {
       await ghlService.sendSMS(contactId, cachedResponse);
       
-      // Return early with minimal state update
       return {
         ...state,
         messages: [
           ...state.messages,
           new AIMessage(cachedResponse)
         ],
+        leadInfo: currentLeadInfo,
+        threadId,
+        conversationId: conversationState.conversationId,
+        contactId,
+        phone,
         cached: true,
         processingTime: Date.now() - startTime
       };
@@ -645,101 +655,83 @@ async function webhookHandlerNode(state, config) {
         contactId,
         traceId
       });
-      // Fall through to normal processing if cache send fails
     }
   }
   
-  // Invoke the sales agent with proper configuration
+  // Invoke sales agent with proper state
   logger.info('🤖 INVOKING SALES AGENT', {
     traceId,
+    threadId,
     contactId,
     conversationId: conversationState.conversationId,
-    messageCount: agentMessages.length
+    messageCount: agentMessages.length,
+    leadInfoFields: Object.keys(currentLeadInfo).filter(k => currentLeadInfo[k])
   });
   
   const agentStartTime = Date.now();
   const result = await salesAgentInvoke({
-    messages: agentMessages,  // Only current message
-    // Pass current lead info as context
+    messages: agentMessages,
     leadInfo: currentLeadInfo,
     contactId,
     conversationId: conversationState.conversationId,
-    // Pass conversation history separately for context
+    threadId,
     conversationHistory: conversationHistory
   }, {
-    // Configuration for tools - matching config parameter pattern
     configurable: {
       ghlService,
       calendarId: process.env.GHL_CALENDAR_ID,
-      contactId
+      contactId,
+      thread_id: threadId,
+      __pregel_scratchpad: {
+        currentTaskInput: {
+          leadInfo: currentLeadInfo,
+          contactId,
+          threadId,
+          conversationId: conversationState.conversationId
+        }
+      }
     },
-    runId: traceId  // Pass trace ID to agent
+    runId: traceId
   });
   
   logger.info('✅ AGENT RESPONSE RECEIVED', {
     traceId,
+    threadId,
     agentProcessingTime: Date.now() - agentStartTime,
     responseMessageCount: result.messages?.length || 0,
     appointmentBooked: result.appointmentBooked || false,
-    leadInfoUpdated: Object.keys(result.leadInfo || {}).length > Object.keys(currentLeadInfo).filter(k => currentLeadInfo[k]).length
+    leadInfoUpdated: result.leadInfo ? Object.keys(result.leadInfo).filter(k => result.leadInfo[k]) : []
   });
   
-  // Clear conversation cache (non-blocking)
+  // Clear conversation cache
   setImmediate(() => {
     conversationManager.clearCache(contactId, conversationState.conversationId);
-    logger.debug('🧹 Cache cleared', {
-      traceId,
-      contactId,
-      conversationId: conversationState.conversationId
-    });
   });
   
-  logger.info('✅ WEBHOOK PROCESSED SUCCESSFULLY', {
-    traceId,
-    totalProcessingTime: Date.now() - startTime,
-    contactId,
-    finalMessageCount: result.messages?.length || 0,
-    appointmentBooked: result.appointmentBooked || false
-  });
-  
-  // Record success for circuit breaker
-  circuitBreaker.recordSuccess();
-  
-  // Return updated state with messages following MessagesAnnotation pattern
+  // Return updated state with ALL information preserved
   return {
     messages: result.messages,
     contactId,
     phone,
-    leadInfo: result.leadInfo || currentLeadInfo  // Use updated leadInfo from agent
+    leadInfo: result.leadInfo || currentLeadInfo,
+    threadId,
+    conversationId: conversationState.conversationId,
+    appointmentBooked: result.appointmentBooked || false,
+    processingTime: Date.now() - startTime
   };
   
   } catch (error) {
     logger.error('❌ WEBHOOK HANDLER ERROR', {
       traceId,
+      threadId,
       error: error.message,
       stack: error.stack,
-      contactId: state.contactId,
-      errorType: error.name,
-      errorCode: error.code,
-      phase: 'webhook_processing',
-      inputMessages: state.messages?.length || 0,
-      lastMessage: state.messages?.[state.messages.length - 1]?.content?.substring(0, 100),
-      processingTimeBeforeError: Date.now() - startTime
+      contactId: state.contactId
     });
     
-    // Record failure for circuit breaker
     circuitBreaker.recordFailure();
     
-    // Log to LangSmith trace if available
-    if (config.callbacks) {
-      config.callbacks.handleError?.(error);
-    }
-    
-    
-    // Return user-friendly error message for other errors
-    const errorMessage = error.name === 'CancelledError' || error.message.includes('cancelled')
-      ? 'Hubo una interrupción temporal. Por favor, envía tu mensaje nuevamente.'
-      : 'Lo siento, hubo un error procesando tu mensaje. Por favor intenta de nuevo.';
+    const errorMessage = 'Lo siento, hubo un error procesando tu mensaje. Por favor intenta de nuevo.';
     
     return {
       messages: [
@@ -750,14 +742,16 @@ async function webhookHandlerNode(state, config) {
         })
       ],
       contactId: state.contactId,
-      phone: state.phone
+      phone: state.phone,
+      leadInfo: state.leadInfo,
+      threadId
     };
   }
 }
 
-// Define extended state annotation for webhook handler
+// UPDATED: Extended state annotation with thread support
 const WebhookAnnotation = Annotation.Root({
-  ...MessagesAnnotation.spec,  // Use the spec to properly inherit message handling
+  ...MessagesAnnotation.spec,
   contactId: Annotation({
     default: () => null
   }),
@@ -767,6 +761,24 @@ const WebhookAnnotation = Annotation.Root({
   leadInfo: Annotation({
     reducer: (x, y) => ({ ...x, ...y }),
     default: () => ({})
+  }),
+  threadId: Annotation({
+    default: () => null
+  }),
+  conversationId: Annotation({
+    default: () => null
+  }),
+  appointmentBooked: Annotation({
+    default: () => false
+  }),
+  cached: Annotation({
+    default: () => false
+  }),
+  duplicate: Annotation({
+    default: () => false
+  }),
+  processingTime: Annotation({
+    default: () => 0
   })
 });
 

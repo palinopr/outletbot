@@ -1,6 +1,6 @@
 /**
- * LangGraph Platform API Handler
- * This file handles webhook requests for the LangGraph platform deployment
+ * LangGraph Platform API Handler - UPDATED
+ * Fixes thread continuity and state persistence
  */
 
 import { graph as webhookHandler } from '../agents/webhookHandler.js';
@@ -11,7 +11,7 @@ const logger = new Logger('langgraph-api');
 
 /**
  * Main webhook endpoint for LangGraph Platform
- * FIXED: Maintains conversation continuity using conversationId as thread_id
+ * FIXED: Maintains conversation continuity using conversationId
  */
 export default async function handler(req, res) {
   logger.info('Webhook received', {

@@ -47,6 +47,30 @@ const toolResponse = (content, toolCallId) => ({
   tool_call_id: toolCallId
 });
 
+// CRITICAL: Helper function to find current task input from various config paths
+function getCurrentTaskInput(config) {
+  // Check multiple paths where state might be stored
+  const paths = [
+    config?.configurable?.__pregel_scratchpad?.currentTaskInput,
+    config?.configurable?.currentTaskInput,
+    config?.currentTaskInput,
+    config?.state,
+    config
+  ];
+  
+  for (const path of paths) {
+    if (path && typeof path === 'object') {
+      // If we find leadInfo, we likely found the right path
+      if (path.leadInfo || path.contactId || path.messages) {
+        return path;
+      }
+    }
+  }
+  
+  // Return empty object if nothing found
+  return {};
+}
+
 // Define custom state schema with Annotation.Root
 const AgentStateAnnotation = Annotation.Root({
   // Include messages from MessagesAnnotation
@@ -134,9 +158,9 @@ const extractLeadInfo = tool(
     });
     
     try {
-      // Access state from __pregel_scratchpad.currentTaskInput
-      const currentTaskInput = config?.configurable?.__pregel_scratchpad?.currentTaskInput || {};
-      const currentLeadInfo = currentTaskInput.leadInfo || config?.configurable?.leadInfo || {};
+      // FIXED: Use helper to get state from various config paths
+      const currentTaskInput = getCurrentTaskInput(config);
+      const currentLeadInfo = currentTaskInput.leadInfo || {};
       const extractionCount = currentTaskInput.extractionCount || 0;
       const processedMessages = currentTaskInput.processedMessages || [];
       const stateMessages = currentTaskInput.messages || [];
@@ -662,9 +686,9 @@ const getCalendarSlots = tool(
   async ({ startDate, endDate }, config) => {
     const toolCallId = config.toolCall?.id || 'get_calendar_slots';
     
-    // Access state from __pregel_scratchpad.currentTaskInput
-    const currentTaskInput = config?.configurable?.__pregel_scratchpad?.currentTaskInput || {};
-    const currentLeadInfo = currentTaskInput.leadInfo || config?.configurable?.leadInfo || {};
+    // FIXED: Use helper to get state
+    const currentTaskInput = getCurrentTaskInput(config);
+    const currentLeadInfo = currentTaskInput.leadInfo || {};
     
     // Initialize services if not provided - check multiple config paths
     let ghlService = config?.configurable?.ghlService || 
@@ -928,8 +952,8 @@ const updateGHLContact = tool(
   async ({ tags, notes }, config) => {
     const toolCallId = config.toolCall?.id || 'update_ghl_contact';
     
-    // Access state from __pregel_scratchpad.currentTaskInput
-    const currentTaskInput = config?.configurable?.__pregel_scratchpad?.currentTaskInput || {};
+    // FIXED: Use helper to get state
+    const currentTaskInput = getCurrentTaskInput(config);
     const contactId = currentTaskInput.contactId || config?.configurable?.contactId;
     const leadInfo = currentTaskInput.leadInfo || {};
     
@@ -1129,8 +1153,8 @@ const sendGHLMessage = tool(
       messagePreview: message.substring(0, 50)
     });
     
-    // Access state from __pregel_scratchpad.currentTaskInput
-    const currentTaskInput = config?.configurable?.__pregel_scratchpad?.currentTaskInput || {};
+    // FIXED: Use helper to get state
+    const currentTaskInput = getCurrentTaskInput(config);
     const contactId = currentTaskInput.contactId || config?.configurable?.contactId;
     
     if (!contactId) {
@@ -1537,12 +1561,23 @@ export async function salesAgentInvoke(input, agentConfig) {
     ...agentConfig,
     configurable: {
       ...agentConfig?.configurable,
-      thread_id: contactId || 'default',  // For conversation persistence
+      thread_id: input.threadId || contactId || 'default',  // FIXED: Use threadId from input
       conversationStartTime: startTime,
       agentConfig: AGENT_CONFIG,
       // Pass GHL service and calendar ID for tools
       ghlService: agentConfig?.configurable?.ghlService,
-      calendarId: agentConfig?.configurable?.calendarId
+      calendarId: agentConfig?.configurable?.calendarId,
+      // CRITICAL: Pass state through __pregel_scratchpad for tools to access
+      __pregel_scratchpad: {
+        currentTaskInput: {
+          leadInfo: input.leadInfo || {},
+          contactId: contactId,
+          threadId: input.threadId || contactId || 'default',
+          conversationId: input.conversationId,
+          extractionCount: 0,
+          processedMessages: []
+        }
+      }
     }
   };
   
