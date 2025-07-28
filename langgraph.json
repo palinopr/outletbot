@@ -3,8 +3,7 @@
   "node_version": "20",  
   "dependencies": ["./package.json"],
   "graphs": {
-    "sales_agent": "./agents/salesAgent.js:graph",
-    "webhook_handler": "./agents/webhookHandler.js:graph"
+    "agent": "./agents/webhookHandler.js:graph"
   },
   "env": ".env"
 }
