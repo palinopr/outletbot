@@ -545,6 +545,14 @@ async function webhookHandlerNode(state, config) {
   }
   
   // Check for cached response before invoking agent
+  logger.info('🔍 CHECKING CACHE', {
+    traceId,
+    message: message,
+    messageLength: message.length,
+    messageLower: message.toLowerCase().trim(),
+    cacheAvailable: typeof getCachedResponse === 'function'
+  });
+  
   const cachedResponse = getCachedResponse(message, {
     leadInfo: currentLeadInfo,
     calendarShown: conversationState.calendarShown || false,
@@ -571,7 +579,7 @@ async function webhookHandlerNode(state, config) {
           new AIMessage(cachedResponse)
         ],
         cached: true,
-        processingTime: Date.now() - processStartTime
+        processingTime: Date.now() - startTime
       };
     } catch (error) {
       logger.error('Failed to send cached response', {

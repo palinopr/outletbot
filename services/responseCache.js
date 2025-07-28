@@ -2,6 +2,9 @@ import { Logger } from './logger.js';
 
 const logger = new Logger('responseCache');
 
+// Log initialization
+logger.info('Response cache module loading...');
+
 // Cached responses for common messages
 export const CACHED_RESPONSES = {
   greetings: {
@@ -45,11 +48,27 @@ export const CACHED_RESPONSES = {
  * @returns {string|null} - Cached response or null
  */
 export function getCachedResponse(message, context = {}) {
-  if (!message || typeof message !== 'string') {
-    return null;
-  }
-  
-  const normalizedMsg = message.toLowerCase().trim();
+  try {
+    if (!message || typeof message !== 'string') {
+      logger.debug('Cache check skipped - invalid message type', { message, type: typeof message });
+      return null;
+    }
+    
+    // Check if CACHED_RESPONSES is properly initialized
+    if (!CACHED_RESPONSES || typeof CACHED_RESPONSES !== 'object') {
+      logger.error('CACHED_RESPONSES not initialized!', { 
+        type: typeof CACHED_RESPONSES,
+        keys: CACHED_RESPONSES ? Object.keys(CACHED_RESPONSES) : 'null'
+      });
+      return null;
+    }
+    
+    const normalizedMsg = message.toLowerCase().trim();
+    logger.debug('Normalized message for cache lookup', { 
+      original: message,
+      normalized: normalizedMsg,
+      length: normalizedMsg.length
+    });
   const { leadInfo = {}, calendarShown = false, appointmentBooked = false } = context;
   
   // Don't use cache if we're in middle of conversation flow
@@ -89,6 +108,14 @@ export function getCachedResponse(message, context = {}) {
   
   logger.debug('CACHE_MISS', { message: normalizedMsg });
   return null;
+  } catch (error) {
+    logger.error('Error in getCachedResponse', { 
+      error: error.message,
+      stack: error.stack,
+      message
+    });
+    return null;
+  }
 }
 
 /**
