@@ -1,0 +1,62 @@
+version: '3.8'
+
+services:
+  # PostgreSQL for LangGraph state persistence
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: langgraph
+      POSTGRES_USER: langgraph
+      POSTGRES_PASSWORD: langgraph
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  # Redis for pub-sub and streaming
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+  # LangGraph API Server (simulating cloud environment)
+  langgraph:
+    build:
+      context: .
+      dockerfile: Dockerfile.langgraph
+    environment:
+      # Database
+      DATABASE_URI: postgresql://langgraph:langgraph@postgres:5432/langgraph
+      REDIS_URI: redis://redis:6379
+      
+      # LangSmith
+      LANGSMITH_API_KEY: ${LANGSMITH_API_KEY}
+      LANGCHAIN_TRACING_V2: "true"
+      LANGCHAIN_ENDPOINT: "https://api.smith.langchain.com"
+      LANGCHAIN_PROJECT: "outlet-media-bot"
+      
+      # App Config
+      NODE_ENV: development
+      PORT: 8123
+      
+      # Your API Keys
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      GHL_API_KEY: ${GHL_API_KEY}
+      GHL_LOCATION_ID: ${GHL_LOCATION_ID}
+      GHL_CALENDAR_ID: ${GHL_CALENDAR_ID}
+      
+      # Skip validation for testing
+      SKIP_ENV_VALIDATION: ${SKIP_ENV_VALIDATION:-false}
+    ports:
+      - "8123:8123"
+    volumes:
+      # Mount code as /deps/outletbot to match cloud structure
+      - ./:/deps/outletbot:ro
+      - ./logs:/logs
+    depends_on:
+      - postgres
+      - redis
+    command: ["node", "/api/server.js"]
+
+volumes:
+  postgres_data:

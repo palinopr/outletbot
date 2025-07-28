@@ -1,0 +1,8 @@
+{
+  "node_version": "20",
+  "dependencies": ["."],
+  "graphs": {
+    "test_graph": "./test-simple-graph.js:graph"
+  },
+  "env": ".env"
+}

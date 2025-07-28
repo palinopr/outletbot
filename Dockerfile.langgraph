@@ -1,0 +1,113 @@
+# LangGraph Cloud Environment Simulator
+# This replicates the exact environment used in LangGraph Cloud deployments
+
+FROM node:20-slim
+
+# Install system dependencies (matching LangGraph Cloud)
+RUN apt-get update && apt-get install -y \
+    python3 \
+    python3-pip \
+    curl \
+    git \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create the exact directory structure used in LangGraph Cloud
+RUN mkdir -p /deps/outletbot /api /logs
+
+# Set working directory to match cloud
+WORKDIR /deps/outletbot
+
+# Copy package files first (for better caching)
+COPY package*.json ./
+
+# Install dependencies with exact versions
+RUN npm ci --only=production
+
+# Copy all source files to /deps/outletbot (matching cloud structure)
+COPY . .
+
+# Create the API server that mimics LangGraph Cloud runtime
+RUN echo 'import { createServer } from "http";\n\
+import { parse } from "url";\n\
+import path from "path";\n\
+import { fileURLToPath } from "url";\n\
+\n\
+const __filename = fileURLToPath(import.meta.url);\n\
+const __dirname = path.dirname(__filename);\n\
+\n\
+// Import the graphs\n\
+async function loadGraphs() {\n\
+  console.log("Loading graphs from /deps/outletbot...");\n\
+  try {\n\
+    const { graph: salesAgent } = await import("/deps/outletbot/agents/salesAgent.js");\n\
+    const { graph: webhookHandler } = await import("/deps/outletbot/agents/webhookHandler.js");\n\
+    console.log("✅ Graphs loaded successfully");\n\
+    return { salesAgent, webhookHandler };\n\
+  } catch (error) {\n\
+    console.error("❌ Failed to load graphs:", error);\n\
+    throw error;\n\
+  }\n\
+}\n\
+\n\
+// Import API handler\n\
+async function loadApiHandler() {\n\
+  const { default: handler } = await import("/deps/outletbot/api/langgraph-api.js");\n\
+  return handler;\n\
+}\n\
+\n\
+// Create server\n\
+const server = createServer(async (req, res) => {\n\
+  const { pathname } = parse(req.url);\n\
+  \n\
+  if (pathname === "/health") {\n\
+    res.writeHead(200, { "Content-Type": "application/json" });\n\
+    res.end(JSON.stringify({ status: "ok", timestamp: new Date().toISOString() }));\n\
+    return;\n\
+  }\n\
+  \n\
+  if (pathname === "/webhook/meta-lead" && req.method === "POST") {\n\
+    let body = "";\n\
+    req.on("data", chunk => body += chunk);\n\
+    req.on("end", async () => {\n\
+      try {\n\
+        req.body = JSON.parse(body);\n\
+        const handler = await loadApiHandler();\n\
+        await handler(req, res);\n\
+      } catch (error) {\n\
+        console.error("Webhook error:", error);\n\
+        res.writeHead(500, { "Content-Type": "application/json" });\n\
+        res.end(JSON.stringify({ error: error.message }));\n\
+      }\n\
+    });\n\
+    return;\n\
+  }\n\
+  \n\
+  res.writeHead(404);\n\
+  res.end("Not found");\n\
+});\n\
+\n\
+// Start server\n\
+const PORT = process.env.PORT || 8123;\n\
+loadGraphs().then(() => {\n\
+  server.listen(PORT, () => {\n\
+    console.log(`LangGraph server running at http://localhost:${PORT}`);\n\
+    console.log(`Webhook endpoint: http://localhost:${PORT}/webhook/meta-lead`);\n\
+  });\n\
+}).catch(error => {\n\
+  console.error("Failed to start server:", error);\n\
+  process.exit(1);\n\
+});' > /api/server.js
+
+# Set Node.js module resolution to match LangGraph Cloud
+ENV NODE_PATH=/deps/outletbot/node_modules:/deps/outletbot
+ENV NODE_OPTIONS="--enable-source-maps"
+
+# Expose the port
+EXPOSE 8123
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+  CMD curl -f http://localhost:8123/health || exit 1
+
+# Default command
+CMD ["node", "/api/server.js"]

@@ -162,7 +162,7 @@ export class ConversationManager {
       // Build conversation state
       const state = {
         conversationId,
-        leadPhone: conversation.phone || (leadInfo && leadInfo.phone) || phone,
+        leadPhone: (conversation && conversation.phone) || (leadInfo && leadInfo.phone) || phone,
         ghlContactId: contactId,
         messages,
         messageCount: messages.length,

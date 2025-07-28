@@ -1,0 +1,5 @@
+{
+  "runtime_config": {
+    "skip_schema_extraction": true
+  }
+}

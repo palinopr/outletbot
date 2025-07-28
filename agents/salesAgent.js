@@ -1073,6 +1073,8 @@ Language: Spanish (Texas style)
 - ONLY respond to the LATEST human message (the last HumanMessage in the conversation)
 - Previous messages are for CONTEXT ONLY - to understand what info was already collected
 - NEVER respond to AI messages or your own previous responses
+- If maxExtractionReached=true, send a simple response without calling extract_lead_info
+- If appointmentBooked=true, conversation is complete - ONLY use send_ghl_message, NO OTHER TOOLS
 - If you see your own messages in history, IGNORE them - they're just for context
 
 STATE CHECKING RULES:
@@ -1117,6 +1119,7 @@ CRITICAL RULES:
 2. If tool says "ALL_FIELDS_READY" → call get_calendar_slots IMMEDIATELY
 3. DO NOT ask more questions if all fields are collected
 4. Always call update_ghl_contact after successful extraction
+5. If appointmentBooked=true → ONLY use send_ghl_message (no extraction, no other tools)
 
 PERSONALITY:
 - Smart & proud to be AI
@@ -1215,9 +1218,9 @@ const preModelHook = (state) => {
   };
 };
 
-// Bind tools to the model with forced tool usage
+// Bind tools to the model with auto tool choice
 const modelWithTools = llm.bindTools(tools, {
-  tool_choice: "required"  // Force the model to always use tools
+  tool_choice: "auto"  // Let the model decide when to use tools
 });
 
 // Create the agent with modern parameters
@@ -1345,7 +1348,7 @@ export async function salesAgentInvoke(input, agentConfig) {
     const result = await Promise.race([
       salesAgent.invoke(initialState, {
         ...enhancedConfig,
-        recursionLimit: 50, // Increased limit to handle complex conversations
+        recursionLimit: 15, // Reasonable limit to prevent infinite loops
         configurable: {
           ...enhancedConfig.configurable,
           // Ensure state is available to tools

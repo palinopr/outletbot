@@ -1,0 +1,10 @@
+{
+  "node_version": "20",
+  "runtime": "nodejs",
+  "dependencies": ["./package.json"],
+  "graphs": {
+    "sales_agent": "./agents/salesAgent.js",
+    "webhook_handler": "./agents/webhookHandler.js"
+  },
+  "env": ".env"
+}
