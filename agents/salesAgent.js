@@ -10,6 +10,9 @@ import { config } from '../services/config.js';
 import { metrics } from '../services/monitoring.js';
 import { featureFlags, FLAGS } from '../services/featureFlags.js';
 import { ManagedMemorySaver } from '../services/memoryManager.js';
+import { messageCompressor } from '../services/messageCompressor.js';
+import { modelSelector } from '../services/modelSelector.js';
+import { toolResponseCompressor } from '../services/toolResponseCompressor.js';
 
 // Initialize logger
 const logger = new Logger('salesAgent');
@@ -36,6 +39,13 @@ const AGENT_CONFIG = {
 
 // Maximum extraction attempts per conversation
 const MAX_EXTRACTION_ATTEMPTS = 3;
+
+// Helper function for compressed tool responses
+const toolResponse = (content, toolCallId) => ({
+  role: "tool",
+  content: toolResponseCompressor.compress(content),
+  tool_call_id: toolCallId
+});
 
 // Define custom state schema with Annotation.Root
 const AgentStateAnnotation = Annotation.Root({
@@ -131,6 +141,33 @@ const extractLeadInfo = tool(
       const processedMessages = currentTaskInput.processedMessages || [];
       const stateMessages = currentTaskInput.messages || [];
       
+      // Skip extraction for obvious messages with no info
+      const SKIP_PATTERNS = [
+        /^(hola|hi|hello|hey|buenos días|buenas tardes|buenas noches|que tal|qué tal)$/i,
+        /^(ok|okay|vale|bien|perfecto|excelente|genial)$/i,
+        /^(gracias|thanks|gracias por|thank you)$/i,
+        /^(si|sí|no|yes|nope)$/i,  // These need context, skip extraction
+        /^(adios|adiós|bye|chao|hasta luego|nos vemos)$/i,
+        /^\d+$/,  // Just numbers without context
+        /^[.,!?¿¡]$/,  // Just punctuation
+        /^(ah|oh|hmm|mmm|aja|ajá)$/i  // Interjections
+      ];
+      
+      const messageToCheck = message.trim().toLowerCase();
+      if (SKIP_PATTERNS.some(pattern => pattern.test(messageToCheck))) {
+        logger.info('⚡ EXTRACTION SKIPPED - Simple message', {
+          toolCallId,
+          message: messageToCheck,
+          savedTokens: 800  // Approximate tokens saved
+        });
+        
+        return new Command({
+          update: {
+            messages: [toolResponse("No extraction needed for simple greeting/response", toolCallId)]
+          }
+        });
+      }
+      
       // Check extraction attempt limit
       const MAX_EXTRACTION_ATTEMPTS = 3;
       if (extractionCount >= MAX_EXTRACTION_ATTEMPTS) {
@@ -143,11 +180,7 @@ const extractLeadInfo = tool(
         return new Command({
           update: {
             maxExtractionReached: true,
-            messages: [{
-              role: "tool",
-              content: "Max extraction attempts reached. Continue with available info.",
-              tool_call_id: toolCallId
-            }]
+            messages: [toolResponse("Max extraction attempts reached. Continue with available info.", toolCallId)]
           }
         });
       }
@@ -162,11 +195,7 @@ const extractLeadInfo = tool(
         
         return new Command({
           update: {
-            messages: [{
-              role: "tool",
-              content: "Message already processed. No new info.",
-              tool_call_id: toolCallId
-            }]
+            messages: [toolResponse("Message already processed. No new info.", toolCallId)]
           }
         });
       }
@@ -191,16 +220,13 @@ const extractLeadInfo = tool(
         // Return tool message even when hitting limit
         return new Command({
           update: {
-            messages: [{
-              role: "tool",
-              content: "Max extraction attempts reached",
-              tool_call_id: toolCallId
-            }]
+            messages: [toolResponse("Max extraction attempts reached", toolCallId)]
           }
         });
       }
       
-      const llm = new ChatOpenAI({ model: "gpt-4-turbo-preview", temperature: 0 });
+      // Smart model selection based on message complexity
+      const llm = modelSelector.getModelForTool('extract_lead_info', { message });
       
       // Build currentInfo from state
       const currentInfo = {
@@ -244,29 +270,127 @@ const extractLeadInfo = tool(
         isSi: message.toLowerCase() === 'si' || message.toLowerCase() === 'sí' || message.toLowerCase() === 'yes'
       });
       
-      if (message.toLowerCase() === 'si' || message.toLowerCase() === 'sí' || message.toLowerCase() === 'yes' || message.toLowerCase() === 'sí.') {
-        // Check if last assistant message contains a budget question with a number
-        const budgetMatch = lastAssistantQuestion.match(/\$?(\d+)/);
-        const containsBudgetQuestion = lastAssistantQuestion.toLowerCase().includes('presupuesto') || 
-                                       lastAssistantQuestion.toLowerCase().includes('budget');
+      // Check if message is just a number (common after budget questions)
+      const isJustNumber = /^\$?\d+(?:,\d{3})*(?:\.\d{2})?$/.test(message.trim());
+      
+      if (isJustNumber) {
+        // Check if last question was about budget
+        const wasBudgetQuestion = ['presupuesto', 'budget', 'mensual', 'al mes', 'por mes', 'invertir']
+          .some(keyword => lastAssistantQuestion.toLowerCase().includes(keyword));
         
-        logger.debug('Budget match check', { 
-          budgetMatch: budgetMatch?.[1], 
-          containsBudgetQuestion
-        });
-        
-        if (budgetMatch && containsBudgetQuestion) {
-          logger.info('✅ Si confirmation detected for budget', { 
-            extractedBudget: budgetMatch[1] 
+        if (wasBudgetQuestion) {
+          const budgetAmount = parseInt(message.replace(/[$,]/g, ''));
+          logger.info('✅ Budget extracted from standalone number', {
+            toolCallId,
+            budget: budgetAmount,
+            lastQuestion: lastAssistantQuestion.substring(0, 50)
           });
           
-          // Directly return the extracted budget
-          const extractedBudget = parseInt(budgetMatch[1]);
-          const merged = { ...currentInfo, budget: extractedBudget };
+          const merged = { ...currentInfo, budget: budgetAmount };
           
-          logger.info('✅ BUDGET EXTRACTED FROM SI CONFIRMATION', {
+          return new Command({
+            update: {
+              leadInfo: merged,
+              extractionCount: extractionCount + 1,
+              processedMessages: [...processedMessages, messageHash],
+              messages: [{
+                role: "tool",
+                content: toolResponseCompressor.compress(`Extracted: {"budget": ${budgetAmount}}`),
+                tool_call_id: toolCallId
+              }]
+            }
+          });
+        }
+      }
+      
+      // Enhanced "sí" confirmation handling
+      const isConfirmation = /^(si|sí|yes|sí\.|si\.|claro|por supuesto|correcto|exacto|eso es)$/i.test(message.trim());
+      
+      if (isConfirmation) {
+        logger.debug('Confirmation detected, analyzing last assistant question', { 
+          message,
+          lastQuestion: lastAssistantQuestion.substring(0, 100)
+        });
+        
+        // Extract all numbers from the last assistant message
+        const numberMatches = lastAssistantQuestion.match(/\$?\d+(?:,\d{3})*(?:\.\d{2})?/g);
+        
+        // Check for different types of questions
+        const patterns = {
+          budget: {
+            keywords: ['presupuesto', 'budget', 'mensual', 'al mes', 'por mes', 'mensuales'],
+            extract: (numbers) => {
+              if (numbers && numbers.length > 0) {
+                // Get the largest number (usually the budget amount)
+                const amounts = numbers.map(n => parseInt(n.replace(/[$,]/g, '')));
+                return Math.max(...amounts);
+              }
+              return null;
+            }
+          },
+          email: {
+            keywords: ['email', 'correo', '@'],
+            extract: () => {
+              const emailMatch = lastAssistantQuestion.match(/[\w.-]+@[\w.-]+\.\w+/);
+              return emailMatch ? emailMatch[0] : null;
+            }
+          },
+          name: {
+            keywords: ['llamas', 'nombre', 'eres'],
+            extract: () => {
+              // Extract name from patterns like "¿Eres Juan?" or "¿Te llamas María?"
+              const namePatterns = [
+                /¿(?:te llamas|eres|tu nombre es)\s+([A-Z][a-záéíóú]+)/i,
+                /¿([A-Z][a-záéíóú]+)\s+(?:eres tú|verdad)?/i
+              ];
+              for (const pattern of namePatterns) {
+                const match = lastAssistantQuestion.match(pattern);
+                if (match) return match[1];
+              }
+              return null;
+            }
+          },
+          businessType: {
+            keywords: ['negocio', 'tienes', 'restaurante', 'tienda', 'salón', 'clínica'],
+            extract: () => {
+              const types = ['restaurante', 'tienda', 'salón', 'clínica', 'consultorio', 'spa', 'gym'];
+              for (const type of types) {
+                if (lastAssistantQuestion.toLowerCase().includes(type)) {
+                  return type;
+                }
+              }
+              return null;
+            }
+          }
+        };
+        
+        // Check each pattern type
+        let extractedData = {};
+        for (const [field, config] of Object.entries(patterns)) {
+          const hasKeyword = config.keywords.some(kw => 
+            lastAssistantQuestion.toLowerCase().includes(kw)
+          );
+          
+          if (hasKeyword) {
+            const value = config.extract(numberMatches);
+            if (value !== null) {
+              extractedData[field] = value;
+              logger.info(`✅ Extracted ${field} from confirmation`, { 
+                field,
+                value,
+                question: lastAssistantQuestion.substring(0, 50)
+              });
+            }
+          }
+        }
+        
+        // If we extracted any data, return it
+        if (Object.keys(extractedData).length > 0) {
+          const merged = { ...currentInfo, ...extractedData };
+          
+          logger.info('✅ DATA EXTRACTED FROM CONFIRMATION', {
             toolCallId,
-            budget: extractedBudget,
+            extracted: extractedData,
             processingTime: Date.now() - startTime
           });
           
@@ -277,7 +401,7 @@ const extractLeadInfo = tool(
               processedMessages: [...processedMessages, messageHash],
               messages: [{
                 role: "tool",
-                content: `Extracted: {"budget": ${extractedBudget}}`,
+                content: toolResponseCompressor.compress(`Extracted: ${JSON.stringify(extractedData)}`),
                 tool_call_id: toolCallId
               }]
             }
@@ -389,11 +513,7 @@ If the message only mentions name, return ONLY {"name": "Juan"}`;
             update: {
               extractionCount: extractionCount + 1, // Count failed attempts too
               processedMessages: [...processedMessages, messageHash],
-              messages: [{
-                role: "tool",
-                content: "No new information extracted from message",
-                tool_call_id: toolCallId
-              }]
+              messages: [toolResponse("No new information extracted from message", toolCallId)]
             }
           });
         }
@@ -483,7 +603,7 @@ If the message only mentions name, return ONLY {"name": "Juan"}`;
             allFieldsCollected: hasAllFields,
             messages: [{
               role: "tool",
-              content: `Extracted: ${JSON.stringify(extracted)}\nCURRENT_STATE: ${JSON.stringify(stateInfo)}${hasAllFields ? '\nALL_FIELDS_READY: Show calendar now!' : ''}`,
+              content: toolResponseCompressor.compress(`Extracted: ${JSON.stringify(extracted)}\nCURRENT_STATE: ${JSON.stringify(stateInfo)}${hasAllFields ? '\nALL_FIELDS_READY: Show calendar now!' : ''}`),
               tool_call_id: toolCallId
             }]
           }
@@ -499,7 +619,7 @@ If the message only mentions name, return ONLY {"name": "Juan"}`;
             processedMessages: [...processedMessages, messageHash],
             messages: [{
               role: "tool",
-              content: `Error parsing response: ${e.message}`,
+              content: toolResponseCompressor.compress(`Error parsing response: ${e.message}`),
               tool_call_id: toolCallId
             }]
           }
@@ -517,7 +637,7 @@ If the message only mentions name, return ONLY {"name": "Juan"}`;
           processedMessages: [...processedMessages, messageHash],
           messages: [{
             role: "tool",
-            content: `Error extracting info: ${error.message}`,
+            content: toolResponseCompressor.compress(`Error extracting info: ${error.message}`),
             tool_call_id: toolCallId
           }]
         }
@@ -534,12 +654,8 @@ If the message only mentions name, return ONLY {"name": "Juan"}`;
   }
 );
 
-// Simple in-memory cache for calendar slots (30 min TTL)
-const calendarCache = {
-  data: null,
-  timestamp: 0,
-  TTL: 30 * 60 * 1000 // 30 minutes
-};
+// Import global calendar cache
+import { calendarCache } from '../services/calendarCache.js';
 
 // Tool: Get calendar slots (ONLY after full qualification)
 const getCalendarSlots = tool(
@@ -591,7 +707,7 @@ const getCalendarSlots = tool(
         update: {
           messages: [{
             role: "tool",
-            content: `Cannot fetch slots - budget under $${config.minBudget}/month (current: $${currentLeadInfo.budget})`,
+            content: toolResponseCompressor.compress(`Cannot fetch slots - budget under $${config.minBudget}/month (current: $${currentLeadInfo.budget})`),
             tool_call_id: toolCallId
           }]
         }
@@ -603,23 +719,13 @@ const getCalendarSlots = tool(
     const end = endDate || new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
     
     try {
-      let slots;
+      // Use global calendar cache
+      const slots = await calendarCache.getSlots(start, end);
       
-      // Check cache first
-      if (calendarCache.data && (Date.now() - calendarCache.timestamp < calendarCache.TTL)) {
-        logger.debug('Using cached calendar slots');
-        slots = calendarCache.data;
-      } else {
-        // Fetch fresh slots and cache them
-        slots = await ghlService.getAvailableSlots(
-          calendarId,
-          start,
-          end
-        );
-        calendarCache.data = slots;
-        calendarCache.timestamp = Date.now();
-        logger.debug('Fetched and cached new calendar slots');
-      }
+      logger.debug('Retrieved calendar slots', {
+        count: slots.length,
+        cacheStats: calendarCache.getStats()
+      });
       
       // Format slots for display in Spanish with Texas timezone
       const formattedSlots = slots.slice(0, 5).map((slot, index) => {
@@ -673,7 +779,7 @@ const getCalendarSlots = tool(
           availableSlots: formattedSlots,
           messages: [{
             role: "tool",
-            content: `Found ${formattedSlots.length} available slots`,
+            content: toolResponseCompressor.compress(`Found ${formattedSlots.length} available slots`),
             tool_call_id: toolCallId
           }]
         }
@@ -689,7 +795,7 @@ const getCalendarSlots = tool(
         update: {
           messages: [{
             role: "tool",
-            content: `Error fetching calendar: ${error.message}`,
+            content: toolResponseCompressor.compress(`Error fetching calendar: ${error.message}`),
             tool_call_id: toolCallId
           }]
         }
@@ -752,7 +858,7 @@ const bookAppointment = tool(
           messages: [
             {
               role: "tool",
-              content: `Appointment booked successfully for ${slot.display}`,
+              content: toolResponseCompressor.compress(`Appointment booked successfully for ${slot.display}`),
               tool_call_id: toolCallId
             }
           ],
@@ -773,7 +879,7 @@ const bookAppointment = tool(
           messages: [
             {
               role: "tool",
-              content: `Error booking appointment: ${error.message}`,
+              content: toolResponseCompressor.compress(`Error booking appointment: ${error.message}`),
               tool_call_id: toolCallId
             }
           ]
@@ -865,7 +971,7 @@ const updateGHLContact = tool(
           lastUpdate: new Date().toISOString(),
           messages: [{
             role: "tool",
-            content: "Contact updated successfully",
+            content: toolResponseCompressor.compress("Contact updated successfully"),
             tool_call_id: toolCallId
           }]
         }
@@ -885,7 +991,7 @@ const updateGHLContact = tool(
           lastUpdate: new Date().toISOString(),
           messages: [{
             role: "tool",
-            content: `Error updating contact: ${error.message}`,
+            content: toolResponseCompressor.compress(`Error updating contact: ${error.message}`),
             tool_call_id: toolCallId
           }]
         }
@@ -923,14 +1029,14 @@ const parseTimeSelection = tool(
         update: {
           messages: [{
             role: "tool",
-            content: "No available slots in state to parse selection from",
+            content: toolResponseCompressor.compress("No available slots in state to parse selection from"),
             tool_call_id: toolCallId
           }]
         }
       });
     }
     
-    const llm = new ChatOpenAI({ model: "gpt-4", temperature: 0 });
+    const llm = modelSelector.getModelForTool('parse_time_selection', { message: userMessage });
     
     const prompt = `User selected a time from these options:
     ${availableSlots.map(s => `${s.index}. ${s.display}`).join('\n')}
@@ -963,7 +1069,7 @@ const parseTimeSelection = tool(
           selectedSlot: selectedSlot,
           messages: [{
             role: "tool",
-            content: `User selected slot ${selection}: ${selectedSlot.display}`,
+            content: toolResponseCompressor.compress(`User selected slot ${selection}: ${selectedSlot.display}`),
             tool_call_id: toolCallId
           }]
         }
@@ -975,7 +1081,7 @@ const parseTimeSelection = tool(
       update: {
         messages: [{
           role: "tool",
-          content: "Could not understand time selection from user message",
+          content: toolResponseCompressor.compress("Could not understand time selection from user message"),
           tool_call_id: toolCallId
         }]
       }
@@ -1048,19 +1154,29 @@ const sendGHLMessage = tool(
       const containsCalendarSlots = message.includes('disponibles') && 
                                    (message.includes('1.') || message.includes('Opción 1'));
       
+      // Check if this is a terminal response
+      const isTerminalResponse = 
+        containsCalendarSlots || // Calendar shown, wait for selection
+        message.includes('tag "nurture-lead"') || // Budget too low
+        message.includes('Mucho éxito con tu negocio') || // Closing message
+        appointmentBooked; // Already booked
+      
       // Return Command object with tool message
       return new Command({
         update: {
           messages: [
             {
               role: "tool",
-              content: `Message sent successfully: "${message.substring(0, 50)}..."${containsCalendarSlots ? '\nCALENDAR_SHOWN: Waiting for user selection' : ''}`,
+              content: toolResponseCompressor.compress(`Message sent successfully: "${message.substring(0, 50)}..."${containsCalendarSlots ? '\nCALENDAR_SHOWN: Waiting for user selection' : ''}${isTerminalResponse ? '\nTERMINAL_RESPONSE: End conversation' : ''}`),
               tool_call_id: toolCallId
             }
           ],
           lastUpdate: new Date().toISOString(),
-          calendarShown: containsCalendarSlots
-        }
+          calendarShown: containsCalendarSlots,
+          conversationComplete: isTerminalResponse
+        },
+        // Signal end if terminal response
+        ...(isTerminalResponse && { goto: "END" })
       });
     } catch (error) {
       logger.error("Error sending GHL message", {
@@ -1074,7 +1190,7 @@ const sendGHLMessage = tool(
           messages: [
             {
               role: "tool",
-              content: `Error sending message: ${error.message}`,
+              content: toolResponseCompressor.compress(`Error sending message: ${error.message}`),
               tool_call_id: toolCallId
             }
           ]
@@ -1091,8 +1207,8 @@ const sendGHLMessage = tool(
   }
 );
 
-// System prompt (optimized for token efficiency)
-const SALES_AGENT_PROMPT = `You are María, an AI sales consultant for Outlet Media.
+// Original system prompt (backup)
+const SALES_AGENT_PROMPT_ORIGINAL = `You are María, an AI sales consultant for Outlet Media.
 Language: Spanish (Texas style)
 
 🚨 CRITICAL RULES - MUST FOLLOW 🚨
@@ -1154,6 +1270,8 @@ CRITICAL RULES:
 3. DO NOT ask more questions if all fields are collected
 4. Always call update_ghl_contact after successful extraction
 5. If appointmentBooked=true → ONLY use send_ghl_message (no extraction, no other tools)
+6. If tool response contains "TERMINAL_RESPONSE" → STOP, no more tool calls
+7. After sending calendar or nurture message → STOP, wait for user
 
 PERSONALITY:
 - Smart & proud to be AI
@@ -1172,6 +1290,39 @@ CALENDAR HANDLING:
 
 After booking: appointmentBooked=true - only answer questions`;
 
+// Compressed system prompt (50% smaller - 550 tokens vs 1,100)
+const SALES_AGENT_PROMPT = `Eres María de Outlet Media. Habla español texano.
+
+🚨 REGLAS CRÍTICAS:
+1. SIEMPRE usar herramientas - NUNCA respuestas directas
+2. send_ghl_message para hablar con cliente
+3. extract_lead_info PRIMERO en CADA mensaje
+4. Si maxExtractionReached=true: responder sin extract_lead_info
+5. Si appointmentBooked=true: solo send_ghl_message
+6. Si TERMINAL_RESPONSE: PARAR, no más herramientas
+
+FLUJO ESTRICTO:
+NO leadInfo.name → Pedir nombre
+Tiene nombre, NO problem → Preguntar problema negocio
+Tiene problema, NO goal → Preguntar meta/objetivo
+Tiene meta, NO budget → Preguntar presupuesto mensual
+Budget <$${config.minBudget} → Tag "nurture-lead", explicar mínimo
+Budget ≥$${config.minBudget}, NO email → Pedir email
+TODO + budget ≥$${config.minBudget} → get_calendar_slots INMEDIATO
+
+INTERPRETACIÓN HERRAMIENTAS:
+- CURRENT_STATE dice nextStep → seguir exacto
+- ALL_FIELDS_READY → get_calendar_slots YA
+- CALENDAR_SHOWN → PARAR, esperar selección
+- Después calendario/nurture → PARAR
+
+NUNCA preguntar info que ya está en leadInfo
+Siempre update_ghl_contact después de extraer
+Usar palabras exactas del cliente`;
+
+// Use compressed or original based on config
+const SALES_AGENT_PROMPT_TO_USE = config.features?.useCompressedPrompt ? 
+  SALES_AGENT_PROMPT : SALES_AGENT_PROMPT_ORIGINAL;
 
 // Create the agent following LangGraph patterns
 // Configure LLM with explicit tool binding and force tool usage
@@ -1200,13 +1351,16 @@ const promptFunction = (messages) => {
     recentMessages = recentMessages.slice(-10);
   }
   
+  // Apply message compression to reduce tokens
+  const compressedMessages = messageCompressor.compressHistory(recentMessages);
+  
   // For now, use basic prompt since we can't access state in messageModifier
   // TODO: Find a way to access state for dynamic prompt
-  const systemPrompt = SALES_AGENT_PROMPT;
+  const systemPrompt = SALES_AGENT_PROMPT_TO_USE;
   
   return [
     { role: "system", content: systemPrompt },
-    ...recentMessages
+    ...compressedMessages
   ];
 };
 

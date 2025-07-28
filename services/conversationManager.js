@@ -2,6 +2,7 @@ import { HumanMessage, AIMessage, SystemMessage } from '@langchain/core/messages
 import { ChatOpenAI } from '@langchain/openai';
 import { config } from './config.js';
 import { Logger } from './logger.js';
+import { stateCache } from './stateCache.js';
 
 export class ConversationManager {
   constructor(ghlService) {

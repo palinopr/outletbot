@@ -11,6 +11,9 @@ import { interceptLangSmithRequests } from '../services/uuidInterceptor.js';
 import { getTimeout, getErrorMessage } from '../production-fixes.js';
 import { installGlobalErrorHandlers } from '../services/errorHandlers.js';
 import { onShutdown } from '../services/shutdown.js';
+import { getCachedResponse } from '../services/responseCache.js';
+import { initializeCalendarCache } from '../services/calendarCache.js';
+import { conversationTerminator } from '../services/conversationTerminator.js';
 
 // Initialize logger
 const logger = new Logger('webhookHandler');
@@ -161,6 +164,9 @@ async function initialize(retries = 3) {
         );
         
         conversationManager = new ConversationManager(ghlService);
+        
+        // Initialize global calendar cache
+        initializeCalendarCache(ghlService, process.env.GHL_CALENDAR_ID);
         
         // Verify initialization
         await healthCheck();
@@ -327,6 +333,35 @@ async function webhookHandlerNode(state, config) {
     throw new Error('Missing required fields: phone, message, or contactId');
   }
   
+  // Check for early user termination
+  if (conversationTerminator.isUserTermination(message)) {
+    logger.info('🛑 USER TERMINATION DETECTED', {
+      traceId,
+      message: message.substring(0, 30),
+      contactId
+    });
+    
+    const terminalMessage = conversationTerminator.getTerminalMessage('user_rejection');
+    
+    // Send terminal message directly
+    await ghlService.sendSMS(contactId, terminalMessage);
+    
+    // Update tags
+    await ghlService.addTags(contactId, ['user-rejected', 'nurture-lead']);
+    
+    return {
+      ...state,
+      messages: [
+        ...state.messages,
+        new HumanMessage(message),
+        new AIMessage(terminalMessage)
+      ],
+      terminated: true,
+      terminationReason: 'user_rejection',
+      processingTime: Date.now() - startTime
+    };
+  }
+  
   // Create message hash for deduplication
   const messageHash = crypto.createHash('md5')
     .update(`${contactId}-${message}-${phone}`)
@@ -462,6 +497,91 @@ async function webhookHandlerNode(state, config) {
     ...currentLeadInfo,
     hasAllInfo: !!(currentLeadInfo.name && currentLeadInfo.problem && currentLeadInfo.goal && currentLeadInfo.budget && currentLeadInfo.email)
   });
+  
+  // Check for conversation termination
+  const lastAssistantMessage = conversationHistory
+    .filter(msg => msg._getType?.() === 'ai' || msg.role === 'assistant')
+    .slice(-1)[0]?.content || '';
+  
+  const terminationCheck = conversationTerminator.shouldTerminate({
+    appointmentBooked: conversationState.appointmentBooked,
+    maxExtractionReached: conversationState.maxExtractionReached,
+    allFieldsCollected: !!(currentLeadInfo.name && currentLeadInfo.problem && 
+                           currentLeadInfo.goal && currentLeadInfo.budget && 
+                           currentLeadInfo.email),
+    calendarShown: conversationState.calendarShown,
+    messages: conversationHistory
+  }, lastAssistantMessage);
+  
+  if (terminationCheck.shouldTerminate) {
+    logger.info('🛑 CONVERSATION TERMINATED', {
+      traceId,
+      reason: terminationCheck.reason,
+      savedTokens: 3500,
+      lastMessage: lastAssistantMessage.substring(0, 50)
+    });
+    
+    // Check if user is trying to continue after termination
+    if (!conversationTerminator.isCalendarSelection(message)) {
+      const terminalMessage = conversationTerminator.getTerminalMessage(
+        terminationCheck.reason, 
+        { leadInfo: currentLeadInfo }
+      );
+      
+      // Send terminal message
+      await ghlService.sendSMS(contactId, terminalMessage);
+      
+      return {
+        ...state,
+        messages: [
+          ...state.messages,
+          new AIMessage(terminalMessage)
+        ],
+        terminated: true,
+        terminationReason: terminationCheck.reason,
+        processingTime: Date.now() - startTime
+      };
+    }
+  }
+  
+  // Check for cached response before invoking agent
+  const cachedResponse = getCachedResponse(message, {
+    leadInfo: currentLeadInfo,
+    calendarShown: conversationState.calendarShown || false,
+    appointmentBooked: conversationState.appointmentBooked || false
+  });
+  
+  if (cachedResponse) {
+    logger.info('💨 USING CACHED RESPONSE', {
+      traceId,
+      message: message.substring(0, 50),
+      cachedResponseLength: cachedResponse.length,
+      savedTokens: 3822  // Average tokens saved
+    });
+    
+    // Send cached response directly
+    try {
+      await ghlService.sendSMS(contactId, cachedResponse);
+      
+      // Return early with minimal state update
+      return {
+        ...state,
+        messages: [
+          ...state.messages,
+          new AIMessage(cachedResponse)
+        ],
+        cached: true,
+        processingTime: Date.now() - processStartTime
+      };
+    } catch (error) {
+      logger.error('Failed to send cached response', {
+        error: error.message,
+        contactId,
+        traceId
+      });
+      // Fall through to normal processing if cache send fails
+    }
+  }
   
   // Invoke the sales agent with proper configuration
   logger.info('🤖 INVOKING SALES AGENT', {

@@ -54,7 +54,8 @@ export const config = {
     enableSummarization: process.env.ENABLE_SUMMARIZATION !== 'false',
     enableParallelTools: process.env.ENABLE_PARALLEL_TOOLS !== 'false',
     enableCircuitBreaker: process.env.ENABLE_CIRCUIT_BREAKER !== 'false',
-    enableDeduplication: process.env.ENABLE_DEDUPLICATION !== 'false'
+    enableDeduplication: process.env.ENABLE_DEDUPLICATION !== 'false',
+    useCompressedPrompt: process.env.USE_COMPRESSED_PROMPT === 'true'  // Default false for safety
   },
   
   // Spanish language configuration
