@@ -17,6 +17,57 @@ import { toolResponseCompressor } from '../services/toolResponseCompressor.js';
 // Initialize logger
 const logger = new Logger('salesAgent');
 
+// Embedded production cache for reliability
+const PRODUCTION_CACHE = {
+  greetings: {
+    "hola": "¡Hola! Soy María, tu consultora de ventas de Outlet Media. ¿Podrías decirme tu nombre, por favor?",
+    "buenos dias": "¡Buenos días! Soy María de Outlet Media. ¿Cómo te llamas?",
+    "buenos días": "¡Buenos días! Soy María de Outlet Media. ¿Cómo te llamas?",
+    "buenas tardes": "¡Buenas tardes! Soy María de Outlet Media. ¿Cuál es tu nombre?",
+    "buenas noches": "¡Buenas noches! Soy María de Outlet Media. ¿Me podrías compartir tu nombre?",
+    "hi": "¡Hola! Soy María, tu consultora de ventas de Outlet Media. ¿Podrías decirme tu nombre, por favor?",
+    "hello": "¡Hola! Soy María de Outlet Media. ¿Cómo te llamas?",
+    "hey": "¡Hola! Soy María de Outlet Media. ¿Cómo te llamas?",
+    "que tal": "¡Hola! Soy María de Outlet Media. ¿Cómo te llamas?",
+    "qué tal": "¡Hola! Soy María de Outlet Media. ¿Cómo te llamas?"
+  },
+  rejections: {
+    "no me interesa": "Entiendo perfectamente. Si cambias de opinión o tienes preguntas sobre marketing digital, aquí estaré. ¡Mucho éxito con tu negocio!",
+    "no gracias": "No hay problema. Si en el futuro necesitas ayuda para atraer más clientes, no dudes en contactarme. ¡Éxito!",
+    "no thanks": "No hay problema. Si en el futuro necesitas ayuda para atraer más clientes, no dudes en contactarme. ¡Éxito!",
+    "ahora no": "Perfecto, entiendo. Cuando sea el momento adecuado para ti, aquí estaré. ¡Mucho éxito!",
+    "tal vez despues": "Claro, sin presión. Guarda mi contacto para cuando estés listo. ¡Éxito con tu negocio!",
+    "tal vez después": "Claro, sin presión. Guarda mi contacto para cuando estés listo. ¡Éxito con tu negocio!"
+  }
+};
+
+// Production-safe cache function
+function getCachedResponse(message, context = {}) {
+  try {
+    if (!message || typeof message !== 'string') return null;
+    
+    const normalized = message.toLowerCase().trim();
+    const { leadInfo = {} } = context;
+    
+    // Check greetings (only if no name collected)
+    if (!leadInfo.name && PRODUCTION_CACHE.greetings[normalized]) {
+      logger.info('💨 PRODUCTION CACHE HIT - Greeting', { message: normalized });
+      return PRODUCTION_CACHE.greetings[normalized];
+    }
+    
+    // Check rejections
+    if (PRODUCTION_CACHE.rejections[normalized]) {
+      logger.info('💨 PRODUCTION CACHE HIT - Rejection', { message: normalized });
+      return PRODUCTION_CACHE.rejections[normalized];
+    }
+    
+    return null;
+  } catch (error) {
+    logger.error('Cache check error', { error: error.message });
+    return null;
+  }
+}
+
 // Initialize checkpointer for conversation persistence (if enabled)
 const checkpointer = featureFlags.isEnabled(FLAGS.USE_MEMORY_SAVER) 
   ? new ManagedMemorySaver({ 
@@ -1486,6 +1537,47 @@ export async function salesAgentInvoke(input, agentConfig) {
   
   const startTime = Date.now();
   const contactId = input.contactId || agentConfig?.configurable?.contactId;
+  
+  // Check cache before processing
+  const lastMessage = input.messages?.[input.messages.length - 1];
+  if (lastMessage && lastMessage.content) {
+    const cachedResponse = getCachedResponse(lastMessage.content, {
+      leadInfo: input.leadInfo || {}
+    });
+    
+    if (cachedResponse) {
+      logger.info('💨 USING CACHED RESPONSE IN SALES AGENT', {
+        traceId,
+        message: lastMessage.content,
+        savedTokens: 3822
+      });
+      
+      // Send the cached response via GHL
+      const ghlService = agentConfig?.configurable?.ghlService;
+      if (ghlService && contactId) {
+        try {
+          await ghlService.sendSMS(contactId, cachedResponse);
+        } catch (error) {
+          logger.error('Failed to send cached response', {
+            error: error.message,
+            contactId,
+            traceId
+          });
+        }
+      }
+      
+      // Return cached response without AI processing
+      return {
+        messages: [...input.messages, new AIMessage({
+          content: cachedResponse,
+          name: 'María'
+        })],
+        leadInfo: input.leadInfo || {},
+        cached: true,
+        processingTime: Date.now() - startTime
+      };
+    }
+  }
   
   // Track conversation start
   if (!input.isResume) {
