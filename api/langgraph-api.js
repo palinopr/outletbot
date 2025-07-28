@@ -27,30 +27,49 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { phone, message, contactId } = req.body;
+    // Handle both direct webhook and LangGraph platform formats
+    const webhookData = req.body.input || req.body;
+    const { phone, message, contactId, conversationId, locationId } = webhookData;
 
     // Validate required fields
-    if (!phone || !message || !contactId) {
-      logger.error('Missing required fields', { phone: !!phone, message: !!message, contactId: !!contactId });
+    if (!message || !contactId) {
+      logger.error('Missing required fields', { 
+        hasMessage: !!message, 
+        hasContactId: !!contactId,
+        hasConversationId: !!conversationId,
+        hasPhone: !!phone 
+      });
       return res.status(400).json({ 
         error: 'Missing required fields',
-        required: ['phone', 'message', 'contactId']
+        required: ['message', 'contactId'],
+        optional: ['phone', 'conversationId', 'locationId']
       });
     }
 
-    // Prepare state for webhook handler
+    // CRITICAL FIX: Pass the actual message content, not JSON
+    // The webhook handler will handle the message directly
     const state = {
-      messages: [new HumanMessage(JSON.stringify({ phone, message, contactId }))],
+      messages: [new HumanMessage(message)],  // Just the message content
       contactId,
-      phone
+      phone: phone || '',  // Phone might be optional
+      conversationId: conversationId || contactId  // Use contactId as fallback
     };
 
     // Process through webhook handler
-    logger.info('Processing webhook', { contactId, phone, messageLength: message.length });
+    logger.info('Processing webhook', { 
+      contactId, 
+      conversationId,
+      phone, 
+      messageLength: message.length 
+    });
     
     const result = await webhookHandler.invoke(state, {
       configurable: {
-        thread_id: contactId
+        thread_id: contactId,
+        contactId,
+        conversationId,
+        phone,
+        locationId
       }
     });
 

@@ -255,34 +255,45 @@ async function webhookHandlerNode(state, config) {
   
   // Parse webhook payload from message content
   let webhookData;
+  let actualMessage;
+  
   try {
-    // Check if this is the initial webhook call with JSON payload
+    // Check if this is the initial webhook call with JSON payload (legacy format)
     if (state.messages.length === 1 && typeof lastMessage.content === 'string' && lastMessage.content.trim().startsWith('{')) {
+      // Legacy JSON format - parse and extract
       webhookData = JSON.parse(lastMessage.content);
-      logger.debug('Parsed JSON webhook payload', {
+      logger.debug('Parsed JSON webhook payload (legacy format)', {
         keys: Object.keys(webhookData),
         hasPhone: !!webhookData.phone,
         hasMessage: !!webhookData.message,
         hasContactId: !!webhookData.contactId
       });
       
+      // Extract the actual message
+      actualMessage = webhookData.message;
+      
       // CRITICAL FIX: Replace the JSON message with the actual message content
-      if (webhookData.message) {
-        state.messages = [new HumanMessage(webhookData.message)];
+      if (actualMessage) {
+        state.messages = [new HumanMessage(actualMessage)];
         logger.info('🔧 FIXED: Extracted actual message from JSON payload', {
           originalContent: lastMessage.content.substring(0, 100),
-          extractedMessage: webhookData.message,
+          extractedMessage: actualMessage,
           contactId: webhookData.contactId
         });
       }
     } else {
-      // If not JSON, treat as regular message with contactId from state
+      // New format - message is already plain text
+      actualMessage = lastMessage.content;
       webhookData = {
-        message: lastMessage.content,
+        message: actualMessage,
         contactId: state.contactId || config?.configurable?.contactId,
         phone: state.phone || config?.configurable?.phone
       };
-      logger.debug('Using plain text message', { messageLength: lastMessage.content.length });
+      logger.debug('Using direct message format', { 
+        messageLength: actualMessage.length,
+        contactId: webhookData.contactId,
+        phone: webhookData.phone
+      });
     }
   } catch (e) {
     logger.error('Invalid webhook payload', {
@@ -361,17 +372,20 @@ async function webhookHandlerNode(state, config) {
     hash: messageHash
   });
   
-  // Always fetch conversation by contactId and phone (no conversationId from webhook)
+  // Get conversationId from state or config
+  const conversationId = state.conversationId || config?.configurable?.conversationId || null;
+  
   logger.info('🔄 FETCHING CONVERSATION STATE', {
     traceId,
     contactId,
+    conversationId,
     phone,
-    conversationIdProvided: false
+    conversationIdProvided: !!conversationId
   });
   
   const conversationStatePromise = conversationManager.getConversationState(
     contactId, 
-    null, // Let the system find the conversation
+    conversationId, // Use the conversationId if available
     phone
   );
   
