@@ -5,7 +5,7 @@ const client = new Client({
   apiKey: process.env.LANGSMITH_API_KEY
 });
 
-const traceId = '1f06bb79-e546-6703-946f-9b59b39e4a2f';
+const traceId = process.env.LANGCHAIN_TRACE_ID || '1f06bb79-e546-6703-946f-9b59b39e4a2f';
 
 async function analyzeTrace() {
   console.log(`🔍 Analyzing LangSmith Trace: ${traceId}\n`);
