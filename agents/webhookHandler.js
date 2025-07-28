@@ -218,7 +218,7 @@ async function initialize(retries = 3) {
         conversationManager = new ConversationManager(ghlService);
         
         // Initialize global calendar cache
-        initializeCalendarCache(ghlService, process.env.GHL_CALENDAR_ID);
+        // initializeCalendarCache(ghlService, process.env.GHL_CALENDAR_ID);
         
         // Verify initialization
         await healthCheck();

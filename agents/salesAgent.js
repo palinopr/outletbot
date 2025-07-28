@@ -1352,7 +1352,9 @@ const promptFunction = (messages) => {
   }
   
   // Apply message compression to reduce tokens
-  const compressedMessages = messageCompressor.compressHistory(recentMessages);
+  // DISABLED: Message compression causing coercion errors in production
+  // const compressedMessages = messageCompressor.compressHistory(recentMessages);
+  const compressedMessages = recentMessages;
   
   // For now, use basic prompt since we can't access state in messageModifier
   // TODO: Find a way to access state for dynamic prompt
