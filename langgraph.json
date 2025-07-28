@@ -5,5 +5,8 @@
   "graphs": {
     "agent": "./agents/webhookHandler.js:graph"
   },
+  "api": {
+    "path": "./api/langgraph-api.js"
+  },
   "env": ".env"
 }
