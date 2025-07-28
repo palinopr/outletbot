@@ -16,56 +16,6 @@ import { onShutdown } from '../services/shutdown.js';
 // import { initializeCalendarCache } from '../services/calendarCache.js';
 // import { conversationTerminator } from '../services/conversationTerminator.js';
 
-// Embedded production cache for reliability
-const PRODUCTION_CACHE = {
-  greetings: {
-    "hola": "¡Hola! Soy María, tu consultora de ventas de Outlet Media. ¿Podrías decirme tu nombre, por favor?",
-    "buenos dias": "¡Buenos días! Soy María de Outlet Media. ¿Cómo te llamas?",
-    "buenos días": "¡Buenos días! Soy María de Outlet Media. ¿Cómo te llamas?",
-    "buenas tardes": "¡Buenas tardes! Soy María de Outlet Media. ¿Cuál es tu nombre?",
-    "buenas noches": "¡Buenas noches! Soy María de Outlet Media. ¿Me podrías compartir tu nombre?",
-    "hi": "¡Hola! Soy María, tu consultora de ventas de Outlet Media. ¿Podrías decirme tu nombre, por favor?",
-    "hello": "¡Hola! Soy María de Outlet Media. ¿Cómo te llamas?",
-    "hey": "¡Hola! Soy María de Outlet Media. ¿Cómo te llamas?",
-    "que tal": "¡Hola! Soy María de Outlet Media. ¿Cómo te llamas?",
-    "qué tal": "¡Hola! Soy María de Outlet Media. ¿Cómo te llamas?"
-  },
-  rejections: {
-    "no me interesa": "Entiendo perfectamente. Si cambias de opinión o tienes preguntas sobre marketing digital, aquí estaré. ¡Mucho éxito con tu negocio!",
-    "no gracias": "No hay problema. Si en el futuro necesitas ayuda para atraer más clientes, no dudes en contactarme. ¡Éxito!",
-    "no thanks": "No hay problema. Si en el futuro necesitas ayuda para atraer más clientes, no dudes en contactarme. ¡Éxito!",
-    "ahora no": "Perfecto, entiendo. Cuando sea el momento adecuado para ti, aquí estaré. ¡Mucho éxito!",
-    "tal vez despues": "Claro, sin presión. Guarda mi contacto para cuando estés listo. ¡Éxito con tu negocio!",
-    "tal vez después": "Claro, sin presión. Guarda mi contacto para cuando estés listo. ¡Éxito con tu negocio!"
-  }
-};
-
-// Production-safe cache function
-function getCachedResponse(message, context = {}) {
-  try {
-    if (!message || typeof message !== 'string') return null;
-    
-    const normalized = message.toLowerCase().trim();
-    const { leadInfo = {} } = context;
-    
-    // Check greetings (only if no name collected)
-    if (!leadInfo.name && PRODUCTION_CACHE.greetings[normalized]) {
-      logger.info('💨 PRODUCTION CACHE HIT - Greeting', { message: normalized });
-      return PRODUCTION_CACHE.greetings[normalized];
-    }
-    
-    // Check rejections
-    if (PRODUCTION_CACHE.rejections[normalized]) {
-      logger.info('💨 PRODUCTION CACHE HIT - Rejection', { message: normalized });
-      return PRODUCTION_CACHE.rejections[normalized];
-    }
-    
-    return null;
-  } catch (error) {
-    logger.error('Cache check error', { error: error.message });
-    return null;
-  }
-}
 
 // Initialize logger
 const logger = new Logger('webhookHandler');
@@ -609,54 +559,6 @@ async function webhookHandlerNode(state, config) {
   }
   */
   
-  // Check for cached response before invoking agent
-  logger.info('🔍 CHECKING CACHE', {
-    traceId,
-    message: message,
-    messageLength: message.length,
-    messageLower: message.toLowerCase().trim(),
-    cacheAvailable: typeof getCachedResponse === 'function'
-  });
-  
-  const cachedResponse = getCachedResponse(message, {
-    leadInfo: currentLeadInfo,
-    calendarShown: conversationState.calendarShown || false,
-    appointmentBooked: conversationState.appointmentBooked || false
-  });
-  
-  if (cachedResponse) {
-    logger.info('💨 USING CACHED RESPONSE', {
-      traceId,
-      threadId,
-      message: message.substring(0, 50),
-      savedTokens: 3822
-    });
-    
-    try {
-      await ghlService.sendSMS(contactId, cachedResponse);
-      
-      return {
-        ...state,
-        messages: [
-          ...state.messages,
-          new AIMessage(cachedResponse)
-        ],
-        leadInfo: currentLeadInfo,
-        threadId,
-        conversationId: conversationState.conversationId,
-        contactId,
-        phone,
-        cached: true,
-        processingTime: Date.now() - startTime
-      };
-    } catch (error) {
-      logger.error('Failed to send cached response', {
-        error: error.message,
-        contactId,
-        traceId
-      });
-    }
-  }
   
   // Invoke sales agent with proper state
   logger.info('🤖 INVOKING SALES AGENT', {
