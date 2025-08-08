@@ -210,3 +210,4 @@ class GhlClient:
             except httpx.HTTPStatusError as e:
                 raise GhlError(f"create_appointment failed: {e}") from e
             return resp.json()
+

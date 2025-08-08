@@ -5,8 +5,8 @@ from typing import Any, Dict, Optional, Literal
 
 from fastapi import FastAPI, HTTPException, Request
 
-from .graph import build_graph
-from .state import State
+from app.graph.graph import build_graph
+from app.core.state import State
 
 app = FastAPI(title="GHL LangGraph Agent")
 

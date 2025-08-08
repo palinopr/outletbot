@@ -8,8 +8,8 @@ from typing import Any
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage, SystemMessage
 
-from .ghl_client import GhlClient
-from .state import State
+from app.tools.ghl_client import GhlClient
+from app.core.state import State
 
 
 def _to_text(content: Any) -> str:

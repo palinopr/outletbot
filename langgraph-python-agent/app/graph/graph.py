@@ -7,9 +7,9 @@ from langgraph.graph import StateGraph, END
 from langgraph.checkpoint.memory import MemorySaver
 from langchain_openai import ChatOpenAI
 
-from .state import State
-from .ghl_client import GhlClient
-from .nodes import fetch_crm, classify, plan, tag, respond, book
+from app.core.state import State
+from app.tools.ghl_client import GhlClient
+from app.nodes import fetch_crm, classify, plan, tag, respond, book
 
 
 def build_graph() -> Any:

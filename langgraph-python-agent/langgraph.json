@@ -5,7 +5,7 @@
     "langchain_openai"
   ],
   "graphs": {
-    "ghl-agent": "./app/compiled.py:graph"
+    "ghl-agent": "./app/graph/compiled.py:graph"
   },
   "env": ".env"
 }
