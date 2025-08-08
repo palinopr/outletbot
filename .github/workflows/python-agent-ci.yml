@@ -1,0 +1,49 @@
+name: Python Agent CI
+
+on:
+  push:
+    paths:
+      - 'langgraph-python-agent/**'
+      - '.github/workflows/python-agent-ci.yml'
+  pull_request:
+    paths:
+      - 'langgraph-python-agent/**'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        working-directory: langgraph-python-agent
+        run: |
+          python -m venv .venv
+          . .venv/bin/activate
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install ruff mypy
+
+      - name: Lint and type-check
+        working-directory: langgraph-python-agent
+        run: |
+          . .venv/bin/activate
+          ruff check || true
+          mypy . || true
+
+      - name: Import check
+        working-directory: langgraph-python-agent
+        run: |
+          . .venv/bin/activate
+          make imports
+
+      - name: Health endpoint check
+        working-directory: langgraph-python-agent
+        run: |
+          . .venv/bin/activate
+          make health

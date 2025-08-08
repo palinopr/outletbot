@@ -20,6 +20,13 @@ Quick start
 - Run locally: python main.py
 - Or via LangGraph CLI: langgraph dev --config langgraph.json
 
+Make targets
+- `make setup`: create venv and install deps
+- `make imports`: quick import check for app and graph
+- `make run` / `make dev`: start FastAPI (dev adds `--reload`)
+- `make health`: boot server and hit `/health`
+- `make fmt` / `make lint` / `make typecheck`: optional ruff/mypy steps
+
 Notes
 - Do not commit secrets. .env is ignored.
 - Main graph entry: app/compiled.py:graph (see langgraph.json)
