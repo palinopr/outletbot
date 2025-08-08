@@ -1,0 +1,11 @@
+{
+  "python_version": "3.11",
+  "dependencies": [
+    ".",
+    "langchain_openai"
+  ],
+  "graphs": {
+    "ghl-agent": "./app/compiled.py:graph"
+  },
+  "env": {}
+}
