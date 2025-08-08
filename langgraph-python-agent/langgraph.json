@@ -7,5 +7,5 @@
   "graphs": {
     "ghl-agent": "./app/compiled.py:graph"
   },
-  "env": {}
+  "env": ".env"
 }
