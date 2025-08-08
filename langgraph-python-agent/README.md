@@ -3,12 +3,12 @@ LangGraph Python Agent
 This folder mirrors the canonical agent under ~/outlet-media-bot/langgraph-python-agent.
 
 Project structure
-- app/
+ - app/
   - core/ — Pydantic models and shared types (State, etc.)
   - tools/ — external service clients (GHL API)
   - graph/ — graph builder and compiled entrypoint
   - web/ — FastAPI app and HTTP routes
-  - nodes.py — agent node implementations (fetch, classify, plan, tag, respond, book)
+  - nodes/ — node modules: fetch_crm, classify, plan, tag, respond, book
 - scripts/ — helper scripts for local tasks
 - main.py — local dev server entrypoint
 - langgraph.json — LangGraph CLI config (loads .env)
